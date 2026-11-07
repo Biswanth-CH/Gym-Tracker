@@ -96,6 +96,10 @@ then finishes the sign-in and removes the `?code=…` from the address bar.
    - `exercise_set_templates`
    - `daily_set_tracker_states`
    - `exercise_personal_records`
+   - `profile_workout_plans`
+   - `body_weight_entries`
+
+   If those last two are missing on an existing project, run `supabase/migrations/20261107_workout_plans_and_body_weight.sql` in the SQL Editor. It only adds tables, policies, and publication entries.
 
 Realtime respects RLS, so each device only receives changes for its own account.
 

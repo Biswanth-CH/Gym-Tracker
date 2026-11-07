@@ -14,15 +14,45 @@ interface PersonalRecordPanelProps {
   onSave: (input: PersonalRecordInput) => Promise<void>;
   onDelete: () => Promise<void>;
   onToast: (message: string, tone?: 'success' | 'error' | 'info') => void;
+  /** Hide the large summary card and keep only the editor modal. */
+  hideSummary?: boolean;
+  /** Increment to open the editor from an external button. */
+  openRequest?: number;
 }
 
 const otherUnit = (unit: WeightUnit): WeightUnit => (unit === 'KG' ? 'LB' : 'KG');
 
 /** Manual PR per profile + exercise variation — independent of the daily Set Tracker. */
-export function PersonalRecordPanel({ exercise, record, onSave, onDelete, onToast }: PersonalRecordPanelProps) {
+export function PersonalRecordPanel({ exercise, record, onSave, onDelete, onToast, hideSummary = false, openRequest = 0 }: PersonalRecordPanelProps) {
   const [editing, setEditing] = useState(false);
+  const [seenRequest, setSeenRequest] = useState(openRequest);
+  if (openRequest !== seenRequest) {
+    setSeenRequest(openRequest);
+    if (openRequest > 0) setEditing(true);
+  }
   const weightLabel = weightFieldLabel(exercise);
   const amountWord = exercise.measure === 'SECONDS' ? 'seconds' : 'reps';
+
+  const modal = (
+      <PersonalRecordModal
+        isOpen={editing}
+        exercise={exercise}
+        record={record}
+        onClose={() => setEditing(false)}
+        onSave={async (input) => {
+          await onSave(input);
+          setEditing(false);
+          onToast(record ? 'Personal record updated' : 'Personal record saved');
+        }}
+        onDelete={async () => {
+          await onDelete();
+          setEditing(false);
+          onToast('Personal record deleted', 'info');
+        }}
+      />
+    );
+
+  if (hideSummary) return modal;
 
   return (
     <section className="detail-card pr-panel" aria-labelledby="pr-heading" data-testid="pr-panel">
@@ -83,22 +113,7 @@ export function PersonalRecordPanel({ exercise, record, onSave, onDelete, onToas
         </div>
       )}
 
-      <PersonalRecordModal
-        isOpen={editing}
-        exercise={exercise}
-        record={record}
-        onClose={() => setEditing(false)}
-        onSave={async (input) => {
-          await onSave(input);
-          setEditing(false);
-          onToast(record ? 'Personal record updated' : 'Personal record saved');
-        }}
-        onDelete={async () => {
-          await onDelete();
-          setEditing(false);
-          onToast('Personal record deleted', 'info');
-        }}
-      />
+      {modal}
     </section>
   );
 }

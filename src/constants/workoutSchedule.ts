@@ -26,6 +26,11 @@ export const WORKOUT_CATEGORIES: Record<WorkoutCategory, CategoryMeta> = {
     description:
       'Muscles grow while you rest. Sleep well, hydrate, stretch and keep any movement light.',
   },
+  mixed: {
+    label: 'Mixed Day',
+    tagline: 'Train the muscles you chose.',
+    description: 'This day trains more than one of the usual push, pull, and leg groupings.',
+  },
 };
 
 export const WORKOUT_CATEGORY_ORDER: readonly WorkoutCategory[] = ['push', 'pull', 'legs', 'rest'];

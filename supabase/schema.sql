@@ -94,6 +94,29 @@ create table if not exists public.exercise_personal_records (
   constraint exercise_personal_records_profile_exercise_key unique (profile_id, exercise_id)
 );
 
+-- One workout-plan row per profile. `weekly_schedule` is the custom split and is
+-- kept even while plan_type is PPL, so switching back restores it.
+create table if not exists public.profile_workout_plans (
+  id               uuid primary key default gen_random_uuid(),
+  profile_id       uuid not null unique references public.gym_profiles (id) on delete cascade,
+  plan_type        text not null default 'PPL' check (plan_type in ('PPL', 'CUSTOM')),
+  split_name       text not null default 'My Split' check (char_length(btrim(split_name)) between 1 and 40),
+  weekly_schedule  jsonb not null check (jsonb_typeof(weekly_schedule) = 'object'),
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+-- One body-weight entry per profile per local date. weight_kg is canonical.
+create table if not exists public.body_weight_entries (
+  id              uuid primary key default gen_random_uuid(),
+  profile_id      uuid not null references public.gym_profiles (id) on delete cascade,
+  recorded_date   date not null,
+  weight_kg       numeric(6, 3) not null check (weight_kg > 0 and weight_kg <= 500),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  constraint body_weight_entries_profile_date_key unique (profile_id, recorded_date)
+);
+
 -- A cloud copy of the original browser data taken during the first import.
 create table if not exists public.local_data_backups (
   id           uuid primary key default gen_random_uuid(),
@@ -133,6 +156,8 @@ create index if not exists daily_exercise_selections_profile_date_idx on public.
 create index if not exists exercise_set_templates_profile_idx on public.exercise_set_templates (profile_id);
 create index if not exists daily_set_tracker_states_profile_date_idx on public.daily_set_tracker_states (profile_id, date);
 create index if not exists exercise_personal_records_profile_idx on public.exercise_personal_records (profile_id);
+create index if not exists profile_workout_plans_profile_idx on public.profile_workout_plans (profile_id);
+create index if not exists body_weight_entries_profile_date_idx on public.body_weight_entries (profile_id, recorded_date);
 
 -- ---------------------------------------------------------------------
 -- updated_at triggers
@@ -141,7 +166,8 @@ do $$
 declare t text;
 begin
   foreach t in array array['gym_profiles', 'attendance_records', 'exercise_set_templates',
-                           'daily_set_tracker_states', 'exercise_personal_records']
+                           'daily_set_tracker_states', 'exercise_personal_records',
+                           'profile_workout_plans', 'body_weight_entries']
   loop
     execute format('drop trigger if exists %I on public.%I', t || '_touch_updated_at', t);
     execute format('create trigger %I before update on public.%I for each row execute function public.touch_updated_at()',
@@ -155,11 +181,13 @@ end $$;
 -- ---------------------------------------------------------------------
 revoke all on public.gym_profiles, public.attendance_records, public.daily_exercise_selections,
               public.exercise_set_templates, public.daily_set_tracker_states,
-              public.exercise_personal_records, public.local_data_backups
+              public.exercise_personal_records, public.profile_workout_plans,
+              public.body_weight_entries, public.local_data_backups
   from anon;
 grant select, insert, update, delete on public.gym_profiles, public.attendance_records,
               public.daily_exercise_selections, public.exercise_set_templates,
-              public.daily_set_tracker_states, public.exercise_personal_records
+              public.daily_set_tracker_states, public.exercise_personal_records,
+              public.profile_workout_plans, public.body_weight_entries
   to authenticated;
 grant select, insert on public.local_data_backups to authenticated;
 revoke all on function public.owns_gym_profile(uuid) from public, anon;
@@ -174,6 +202,8 @@ alter table public.daily_exercise_selections enable row level security;
 alter table public.exercise_set_templates    enable row level security;
 alter table public.daily_set_tracker_states  enable row level security;
 alter table public.exercise_personal_records enable row level security;
+alter table public.profile_workout_plans     enable row level security;
+alter table public.body_weight_entries       enable row level security;
 alter table public.local_data_backups        enable row level security;
 
 -- Profiles: only the owner, and owner_id can never be changed to someone else.
@@ -196,7 +226,8 @@ do $$
 declare t text;
 begin
   foreach t in array array['attendance_records', 'daily_exercise_selections', 'exercise_set_templates',
-                           'daily_set_tracker_states', 'exercise_personal_records']
+                           'daily_set_tracker_states', 'exercise_personal_records',
+                           'profile_workout_plans', 'body_weight_entries']
   loop
     execute format('drop policy if exists %I on public.%I', t || '_select_own', t);
     execute format('drop policy if exists %I on public.%I', t || '_insert_own', t);
@@ -259,7 +290,8 @@ begin
     create publication supabase_realtime;
   end if;
   foreach t in array array['gym_profiles', 'attendance_records', 'daily_exercise_selections',
-                           'exercise_set_templates', 'daily_set_tracker_states', 'exercise_personal_records']
+                           'exercise_set_templates', 'daily_set_tracker_states', 'exercise_personal_records',
+                           'profile_workout_plans', 'body_weight_entries']
   loop
     if not exists (
       select 1 from pg_publication_tables

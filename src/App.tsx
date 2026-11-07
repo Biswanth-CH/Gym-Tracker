@@ -1,13 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { BottomNav } from './components/BottomNav';
+import { Toast } from './components/Toast';
 import { AlertTriangle, SearchX } from 'lucide-react';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { EmptyState } from './components/EmptyState';
 import { AccountBar, SyncBanner } from './components/SyncStatus';
 import { EXERCISES_BY_ID, exerciseTargetsRegion } from './constants/exerciseLibrary';
 import { MUSCLE_GROUPS_BY_ID, getMuscleRegion, isMuscleGroupId } from './constants/muscleGroups';
-import { getWorkoutDay } from './constants/workoutSchedule';
+import { LAST_PROFILE_KEY } from './constants/storageKeys';
 import { useCloudSlice, useCloudStatus, useProfiles } from './hooks/useCloud';
 import { useHashRoute } from './hooks/useHashRoute';
+import { useToast } from './hooks/useToast';
+import { useWorkoutPlan } from './hooks/useWorkoutPlan';
 import { SUPABASE_CONFIG } from './lib/supabaseConfig';
 import { AuthPage, ResetPasswordPage } from './pages/AuthPage';
 import { ConsistencyTrackerPage } from './pages/ConsistencyTrackerPage';
@@ -21,8 +25,11 @@ import { ProfilesPage } from './pages/ProfilesPage';
 import { SetupRequiredPage } from './pages/SetupRequiredPage';
 import { getMigrationMarker, hasLocalProfiles } from './services/cloud/dataMigrationService';
 import { cloudStore } from './store/cloudStore';
+import type { Profile, Route } from './types/gym';
 
-const Shell = ({ children }: { children: ReactNode }) => <main className="app">{children}</main>;
+const Shell = ({ children, withNav = false }: { children: ReactNode; withNav?: boolean }) => (
+  <main className={withNav ? 'app app--with-nav' : 'app'}>{children}</main>
+);
 
 const Loading = ({ label }: { label: string }) => (
   <Shell>
@@ -114,17 +121,49 @@ function CloudApp({ userId }: { userId: string }) {
   }
 
   return (
-    <Shell>
+    <Shell withNav>
       <SyncBanner />
       <Routes onImport={localDataAvailable && marker?.status !== 'completed' ? () => setMigrationOpen(true) : undefined} />
     </Shell>
   );
 }
 
+function rememberProfile(profileId: string): void {
+  try {
+    window.sessionStorage.setItem(LAST_PROFILE_KEY, profileId);
+  } catch {
+    // Private mode can block session storage. Navigation still works from the current route.
+  }
+}
+
+function rememberedProfileId(): string | null {
+  try {
+    return window.sessionStorage.getItem(LAST_PROFILE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function Routes({ onImport }: { onImport?: () => void }) {
   const [route, navigate] = useHashRoute();
   const { profiles, addProfile, editProfile, removeProfile } = useProfiles();
+  const { toast, showToast } = useToast();
   const goHome = () => navigate({ name: 'profiles' });
+
+  useEffect(() => {
+    if (route.name !== 'profiles') rememberProfile(route.profileId);
+  }, [route]);
+
+  const openRemembered = (destination: 'dashboard' | 'consistency') => {
+    const profileId = route.name === 'profiles' ? rememberedProfileId() : route.profileId;
+    const profile = profiles.find((candidate) => candidate.id === profileId);
+    if (!profile) {
+      showToast('Select a profile first.', 'info');
+      navigate({ name: 'profiles' });
+      return;
+    }
+    navigate(destination === 'dashboard' ? { name: 'dashboard', profileId: profile.id } : { name: 'consistency', profileId: profile.id });
+  };
 
   const notFound = (title: string, message: string, actionLabel: string, onAction: () => void) => (
     <div className="page page--center">
@@ -141,21 +180,53 @@ function Routes({ onImport }: { onImport?: () => void }) {
     </div>
   );
 
+  let page: ReactNode;
   if (route.name === 'profiles') {
-    return (
+    page = (
       <ProfilesPage
         profiles={profiles}
         accountBar={<AccountBar onImport={onImport} />}
-        onOpenProfile={(profile) => navigate({ name: 'dashboard', profileId: profile.id })}
+        onOpenProfile={(profile) => {
+          rememberProfile(profile.id);
+          navigate({ name: 'dashboard', profileId: profile.id });
+        }}
         onCreateProfile={addProfile}
         onUpdateProfile={editProfile}
         onDeleteProfile={removeProfile}
       />
     );
+  } else {
+    const profile = profiles.find((candidate) => candidate.id === route.profileId);
+    page = profile ? (
+      <ProfileScreens profile={profile} route={route} navigate={navigate} goHome={goHome} notFound={notFound} />
+    ) : (
+      notFound('Profile not found', 'This profile may have been deleted or the link is out of date.', 'Back to profiles', goHome)
+    );
   }
 
-  const profile = profiles.find((candidate) => candidate.id === route.profileId);
-  if (!profile) return notFound('Profile not found', 'This profile may have been deleted or the link is out of date.', 'Back to profiles', goHome);
+  return (
+    <>
+      {page}
+      <BottomNav route={route} onProfiles={goHome} onWeekly={() => openRemembered('dashboard')} onConsistency={() => openRemembered('consistency')} />
+      <Toast toast={toast} />
+    </>
+  );
+}
+
+function ProfileScreens({
+  profile,
+  route,
+  navigate,
+  goHome,
+  notFound,
+}: {
+  profile: Profile;
+  route: Exclude<Route, { name: 'profiles' }>;
+  navigate: (route: Route, options?: { replace?: boolean }) => void;
+  goHome: () => void;
+  notFound: (title: string, message: string, actionLabel: string, onAction: () => void) => ReactNode;
+}) {
+  const { activeDays } = useWorkoutPlan(profile.id);
   const profileId = profile.id;
   const openDashboard = () => navigate({ name: 'dashboard', profileId });
 
@@ -172,15 +243,15 @@ function Routes({ onImport }: { onImport?: () => void }) {
 
   if (route.name === 'consistency') return <ConsistencyTrackerPage key={profileId} profile={profile} onBack={openDashboard} />;
 
-  const day = getWorkoutDay(route.dayId);
-  if (!day) return notFound('Day not found', 'That day isn’t part of the weekly plan.', 'Back to weekly plan', openDashboard);
+  const day = activeDays.find((candidate) => candidate.id === route.dayId);
+  if (!day) return notFound('Day not found', 'That day isn’t part of this workout plan.', 'Back to weekly plan', openDashboard);
   const dayId = day.id;
   const openDay = () => navigate({ name: 'day', profileId, dayId });
 
   if (route.name === 'day') {
     return (
       <DayDetailsPage
-        key={dayId}
+        key={`${profileId}:${dayId}:${day.title ?? day.category}`}
         profile={profile}
         day={day}
         onBack={openDashboard}
@@ -190,7 +261,9 @@ function Routes({ onImport }: { onImport?: () => void }) {
   }
 
   const group = isMuscleGroupId(route.muscleId) ? MUSCLE_GROUPS_BY_ID[route.muscleId] : undefined;
-  if (!group) return notFound('Muscle group not found', 'That muscle group doesn’t exist.', `Back to ${day.dayName}`, openDay);
+  if (!group || !day.muscleGroupIds.includes(group.id)) {
+    return notFound('Muscle group not found', 'That muscle group isn’t on this day.', `Back to ${day.dayName}`, openDay);
+  }
   const muscleId = group.id;
   const openGroup = () => navigate({ name: 'muscle', profileId, dayId, muscleId });
 

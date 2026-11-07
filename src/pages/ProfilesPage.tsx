@@ -5,7 +5,6 @@ import { EmptyState } from '../components/EmptyState';
 import { ProfileCard } from '../components/ProfileCard';
 import { ProfileModal } from '../components/ProfileModal';
 import { Toast } from '../components/Toast';
-import { REPDB_ATTRIBUTION } from '../constants/exerciseMedia';
 import { useToast } from '../hooks/useToast';
 import type { Profile, ProfileInput } from '../types/gym';
 
@@ -119,24 +118,6 @@ export function ProfilesPage({
           </ul>
         )}
       </section>
-
-      <footer className="credits" aria-labelledby="credits-heading">
-        <h2 id="credits-heading" className="credits__title">
-          Credits
-        </h2>
-        <p>
-          Exercise data by{' '}
-          <a href={REPDB_ATTRIBUTION.url} target="_blank" rel="noopener noreferrer nofollow">
-            RepDB (repdb.co)
-          </a>{' '}
-          — free-tier illustrations used under the{' '}
-          <a href={REPDB_ATTRIBUTION.licenseUrl} target="_blank" rel="noopener noreferrer nofollow">
-            RepDB license
-          </a>
-          .
-        </p>
-        <p>Muscle diagrams are original GymTrack illustrations. Exercise content is general information, not medical advice.</p>
-      </footer>
 
       <ProfileModal
         isOpen={editor.isOpen}

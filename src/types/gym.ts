@@ -57,7 +57,7 @@ export type DayId =
   | 'saturday'
   | 'sunday';
 
-export type WorkoutCategory = 'push' | 'pull' | 'legs' | 'rest';
+export type WorkoutCategory = 'push' | 'pull' | 'legs' | 'rest' | 'mixed';
 
 export interface CategoryMeta {
   label: string;
@@ -72,6 +72,37 @@ export interface WorkoutDay {
   category: WorkoutCategory;
   /** Trained muscle groups (empty on rest days). */
   muscleGroupIds: MuscleGroupId[];
+  /** Custom split label. When omitted, the category label is shown. */
+  title?: string;
+}
+
+export type WorkoutPlanType = 'PPL' | 'CUSTOM';
+
+/** One day inside a profile's saved custom split. */
+export interface CustomDayPlan {
+  dayId: DayId;
+  workoutName: string;
+  muscleGroupIds: MuscleGroupId[];
+  isRest: boolean;
+}
+
+/** Saved plan for one profile (`profile_workout_plans`). PPL display ignores `days`. */
+export interface WorkoutPlan {
+  id: string;
+  profileId: string;
+  planType: WorkoutPlanType;
+  splitName: string;
+  days: CustomDayPlan[];
+  updatedAt: string;
+}
+
+/** One daily weigh-in (`body_weight_entries`). `weightKg` is the canonical stored value. */
+export interface BodyWeightEntry {
+  id: string;
+  profileId: string;
+  date: DateKey;
+  weightKg: number;
+  updatedAt: string;
 }
 
 /* ---------- Muscle hierarchy ---------- */

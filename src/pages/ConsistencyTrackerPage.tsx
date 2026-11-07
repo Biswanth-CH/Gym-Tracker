@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
+import { BarChart3 } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
+import { Modal } from '../components/Modal';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { Toast } from '../components/Toast';
 import { AttendanceCalendar } from '../components/consistency/AttendanceCalendar';
 import { AttendanceModal } from '../components/consistency/AttendanceModal';
 import { AttendanceQuickLog } from '../components/consistency/AttendanceQuickLog';
 import { ConsistencySummary } from '../components/consistency/ConsistencySummary';
+import { BodyWeightSection } from '../components/consistency/BodyWeightSection';
 import { MonthlyStatistics } from '../components/consistency/MonthlyStatistics';
 import { useAttendanceTracker } from '../hooks/useAttendanceTracker';
 import { useExerciseSelections } from '../hooks/useCloud';
@@ -35,6 +38,7 @@ export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPa
   const { toast, showToast } = useToast();
   const { todayKey, attendance, loadError, context, choose } = useAttendanceTracker(profile, showToast);
   const [selectedDate, setSelectedDate] = useState<DateKey | null>(null);
+  const [monthlyOpen, setMonthlyOpen] = useState(false);
 
   const months = useMemo(() => getTrackedMonths(todayKey, TRACKED_MONTH_COUNT), [todayKey]);
   const currentMonthKey = months[months.length - 1].key;
@@ -133,15 +137,23 @@ export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPa
 
       <AttendanceQuickLog attendance={attendance} context={context} onChoose={(date, status) => void choose(date, status)} title="Today" />
 
-      <MonthlyStatistics
-        rows={[...monthlyRows].reverse()}
-        yearStats={yearStats}
-        selectedMonthKey={selectedMonth.key}
-        onSelectMonth={(key) => {
-          setSelectedMonthKey(key);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-      />
+      <BodyWeightSection profile={profile} todayKey={todayKey} onToast={showToast} />
+
+      <button type="button" className="button button--ghost monthly-open" onClick={() => setMonthlyOpen(true)}>
+        <BarChart3 size={18} aria-hidden="true" /> View Monthly Statistics
+      </button>
+      <Modal isOpen={monthlyOpen} onClose={() => setMonthlyOpen(false)} title="Monthly statistics" placement="top">
+        <MonthlyStatistics
+          rows={[...monthlyRows].reverse()}
+          yearStats={yearStats}
+          selectedMonthKey={selectedMonth.key}
+          onSelectMonth={(key) => {
+            setSelectedMonthKey(key);
+            setMonthlyOpen(false);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+        />
+      </Modal>
 
       <AttendanceModal
         dateKey={selectedDate}

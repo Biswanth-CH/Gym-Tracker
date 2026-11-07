@@ -252,6 +252,7 @@ export function getStretchRoutines(category: WorkoutCategory): DayStretchRoutine
     case 'legs':
       return LEGS;
     case 'rest':
+    case 'mixed':
       return null;
   }
 }
@@ -260,3 +261,9 @@ export function getStretchRoutines(category: WorkoutCategory): DayStretchRoutine
 export const ALL_STRETCHES: readonly Stretch[] = [
   ...new Map([...PUSH.pre, ...PUSH.post, ...PULL.pre, ...PULL.post, ...LEGS.pre, ...LEGS.post, ...REST_DAY_RECOVERY].map((item) => [item.id, item])).values(),
 ];
+
+const STRETCHES_BY_ID = new Map(ALL_STRETCHES.map((stretch) => [stretch.id, stretch]));
+
+export function getStretchById(stretchId: string): Stretch | undefined {
+  return STRETCHES_BY_ID.get(stretchId);
+}

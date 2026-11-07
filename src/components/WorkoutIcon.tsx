@@ -1,4 +1,4 @@
-import { BicepsFlexed, Dumbbell, Footprints, Moon, type LucideIcon } from 'lucide-react';
+import { BicepsFlexed, Dumbbell, Footprints, Layers, Moon, type LucideIcon } from 'lucide-react';
 import type { WorkoutCategory } from '../types/gym';
 
 const CATEGORY_ICONS: Record<WorkoutCategory, LucideIcon> = {
@@ -6,6 +6,7 @@ const CATEGORY_ICONS: Record<WorkoutCategory, LucideIcon> = {
   pull: BicepsFlexed,
   legs: Footprints,
   rest: Moon,
+  mixed: Layers,
 };
 
 interface WorkoutIconProps {

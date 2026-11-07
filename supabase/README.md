@@ -12,7 +12,9 @@ auth.users (Supabase accounts)
           ├── daily_exercise_selections   unique (profile_id, exercise_id, date)
           ├── exercise_set_templates      unique (profile_id, exercise_id)
           ├── daily_set_tracker_states    unique (profile_id, exercise_id, date)
-          └── exercise_personal_records   unique (profile_id, exercise_id)
+          ├── exercise_personal_records   unique (profile_id, exercise_id)
+          ├── profile_workout_plans       one row per profile (PPL or custom split)
+          └── body_weight_entries         unique (profile_id, recorded_date), weight in kg
 local_data_backups                        owner_id = auth.uid()   (one-time import backup)
 storage: gym-profile-photos (private)     <auth.uid()>/<profile id>/<file>
 ```
@@ -34,7 +36,7 @@ storage: gym-profile-photos (private)     <auth.uid()>/<profile id>/<file>
   be used in GymTrack.
 
 ## Realtime
-The six synced tables are added to the `supabase_realtime` publication. Realtime applies
+The synced tables, including `profile_workout_plans` and `body_weight_entries`, are added to the `supabase_realtime` publication. Realtime applies
 RLS, so each signed-in device only receives events for its own account's rows.
 
 ## Verified locally

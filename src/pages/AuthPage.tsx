@@ -1,10 +1,59 @@
 import { useId, useState, type FormEvent } from 'react';
-import { Dumbbell, KeyRound, Loader2, LogIn, MailCheck, UserPlus } from 'lucide-react';
+import { Dumbbell, Eye, EyeOff, KeyRound, Loader2, LogIn, MailCheck, UserPlus } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { MIN_PASSWORD_LENGTH, requestPasswordReset, signIn, signUp, updatePassword, validateCredentials } from '../services/cloud/authService';
 import { errorMessage } from '../services/cloud/cloudErrors';
 
 type Mode = 'sign-in' | 'sign-up' | 'forgot';
+
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  autoComplete,
+  testId,
+  hint,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  autoComplete: string;
+  testId?: string;
+  hint?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="field">
+      <label htmlFor={id} className="field__label">
+        {label}
+      </label>
+      <div className="field__password">
+        <input
+          id={id}
+          className="field__input"
+          type={visible ? 'text' : 'password'}
+          autoComplete={autoComplete}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          data-testid={testId}
+        />
+        <button
+          type="button"
+          className="field__password-toggle"
+          onClick={() => setVisible((current) => !current)}
+          aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+          aria-pressed={visible}
+          data-testid={testId ? `${testId}-toggle` : undefined}
+        >
+          {visible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+        </button>
+      </div>
+      {hint && <span className="photo-picker__hint">{hint}</span>}
+    </div>
+  );
+}
 
 function Brand() {
   return (
@@ -129,29 +178,18 @@ export function AuthPage() {
             <input id={emailId} className="field__input" type="email" autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="auth-email" />
           </div>
           {mode !== 'forgot' && (
-            <div className="field">
-              <label htmlFor={passwordId} className="field__label">
-                Password
-              </label>
-              <input
-                id={passwordId}
-                className="field__input"
-                type="password"
-                autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                data-testid="auth-password"
-              />
-              {mode === 'sign-up' && <span className="photo-picker__hint">At least {MIN_PASSWORD_LENGTH} characters.</span>}
-            </div>
+            <PasswordField
+              id={passwordId}
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'}
+              testId="auth-password"
+              hint={mode === 'sign-up' ? `At least ${MIN_PASSWORD_LENGTH} characters.` : undefined}
+            />
           )}
           {mode === 'sign-up' && (
-            <div className="field">
-              <label htmlFor={confirmId} className="field__label">
-                Confirm password
-              </label>
-              <input id={confirmId} className="field__input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} data-testid="auth-confirm" />
-            </div>
+            <PasswordField id={confirmId} label="Confirm password" value={confirm} onChange={setConfirm} autoComplete="new-password" testId="auth-confirm" />
           )}
           {error && (
             <p className="field__error" role="alert">
@@ -215,18 +253,8 @@ export function ResetPasswordPage() {
           Choose a new password
         </h2>
         <form className="form auth-form" onSubmit={handleSubmit} noValidate>
-          <div className="field">
-            <label htmlFor={passwordId} className="field__label">
-              New password
-            </label>
-            <input id={passwordId} className="field__input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor={confirmId} className="field__label">
-              Confirm new password
-            </label>
-            <input id={confirmId} className="field__input" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-          </div>
+          <PasswordField id={passwordId} label="New password" value={password} onChange={setPassword} autoComplete="new-password" testId="reset-password" />
+          <PasswordField id={confirmId} label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" testId="reset-confirm" />
           {error && (
             <p className="field__error" role="alert">
               {error}

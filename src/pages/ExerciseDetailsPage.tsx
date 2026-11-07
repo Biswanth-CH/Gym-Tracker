@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, ListChecks, Target, Wrench } from 'lucide-react';
+import { AlertTriangle, ListChecks, Target, Trophy, Wrench } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
 import { Toast } from '../components/Toast';
 import { DIFFICULTY_LABEL, formatRecommendation } from '../components/workout/ExerciseCard';
@@ -13,7 +13,8 @@ import { useDailyTracker, useExerciseSelections, usePersonalRecord, useSetTempla
 import { useToast } from '../hooks/useToast';
 import { useToday } from '../hooks/useToday';
 import { errorMessage } from '../services/cloud/cloudErrors';
-import type { LibraryExercise, MuscleGroup, MuscleRegion, Profile } from '../types/gym';
+import type { LibraryExercise, MuscleGroup, MuscleRegion, PersonalRecord, Profile } from '../types/gym';
+import { formatNumber, unitLabel, weightFieldLabel } from '../utils/workoutUtils';
 
 interface ExerciseDetailsPageProps {
   profile: Profile;
@@ -21,6 +22,15 @@ interface ExerciseDetailsPageProps {
   region: MuscleRegion;
   exercise: LibraryExercise;
   onBack: () => void;
+}
+
+function prButtonLabel(exercise: LibraryExercise, record: PersonalRecord | null): string {
+  if (!record) return 'Add PR';
+  const amount = exercise.measure === 'SECONDS' ? `${record.reps}s` : `${record.reps} reps`;
+  if (weightFieldLabel(exercise) && record.weight !== null) {
+    return `PR: ${formatNumber(record.weight)} ${unitLabel(record.unit)} × ${amount}`;
+  }
+  return `PR: ${amount}`;
 }
 
 export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }: ExerciseDetailsPageProps) {
@@ -31,6 +41,8 @@ export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }
   const { completed, setCompleted } = useDailyTracker(profile.id, exercise.id, todayKey);
   const { record, save: saveRecord, remove: removeRecord } = usePersonalRecord(profile.id, exercise.id);
   const [toggling, setToggling] = useState(false);
+  const [showTarget, setShowTarget] = useState(false);
+  const [prRequest, setPrRequest] = useState(0);
   const selectedToday = isSelected(exercise.id, todayKey);
   const needsWeight = exercise.loadType === 'WEIGHTED' || exercise.loadType === 'ASSISTED';
 
@@ -58,33 +70,71 @@ export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }
         <span className="top-bar__context">{profile.name}</span>
       </nav>
 
-      {/* 1. Name + target */}
       <header className="exercise-header">
         <p className="eyebrow">
           {group.name} · {region.name}
         </p>
-        <h1 className="page-title">{exercise.name}</h1>
-        <p className="exercise-header__target">
-          <Target size={16} aria-hidden="true" /> Targets <strong>{region.name}</strong> ({region.anatomicalName})
-        </p>
+        <div className="exercise-heading-row">
+          <h1 className="page-title">{exercise.name}</h1>
+          <div className="exercise-actions">
+            <button
+              type="button"
+              className={`button button--ghost button--compact${showTarget ? ' is-active' : ''}`}
+              aria-expanded={showTarget}
+              onClick={() => setShowTarget((open) => !open)}
+            >
+              <Target size={14} aria-hidden="true" /> Target Muscles
+            </button>
+            <button type="button" className="button button--ghost button--compact" onClick={() => setPrRequest((count) => count + 1)} data-testid="pr-open">
+              <Trophy size={14} aria-hidden="true" /> {prButtonLabel(exercise, record)}
+            </button>
+          </div>
+        </div>
       </header>
 
-      {/* 2–3. Large illustrations + equally large target muscle diagram */}
-      <div className="exercise-visuals">
-        <ExerciseMediaViewer exercise={exercise} />
+      {showTarget && (
         <section className="detail-card target-visual" aria-labelledby="target-visual-heading" data-testid="target-diagram">
-          <h2 id="target-visual-heading" className="detail-card__title">
-            Target muscle
-          </h2>
+          <div className="target-visual__header">
+            <h2 id="target-visual-heading" className="detail-card__title">
+              Target muscle
+            </h2>
+            <button type="button" className="button button--ghost button--compact" onClick={() => setShowTarget(false)}>
+              Close
+            </button>
+          </div>
+          <p className="exercise-header__target">
+            Targets <strong>{region.name}</strong> ({region.anatomicalName})
+          </p>
           <MuscleAnatomyDiagram muscleGroupId={group.id} regionId={region.id} size="lg" />
           <p className="target-visual__legend">
             <span className="target-visual__swatch target-visual__swatch--active" aria-hidden="true" /> {region.name}
             <span className="target-visual__swatch target-visual__swatch--group" aria-hidden="true" /> Rest of {group.name.toLowerCase()}
           </p>
         </section>
-      </div>
+      )}
 
-      {/* 4–5. Instructions + mistakes */}
+      <ExerciseMediaViewer exercise={exercise} />
+
+      <TodayVariationToggle selected={selectedToday} busy={toggling} onToggle={() => void toggleToday()} />
+
+      <SetTracker
+        exercise={exercise}
+        template={template}
+        completed={completed}
+        record={record}
+        onSavePlan={(plan) => savePlan(plan, exercise.measure)}
+        onSetCompleted={setCompleted}
+        onAcceptPr={async (candidate) => {
+          await saveRecord(
+            { recordDate: todayKey, weight: candidate.weight, unit: candidate.unit, reps: candidate.reps, sets: null, notes: record?.notes ?? null },
+            exercise.measure,
+            needsWeight,
+          );
+          showToast('Personal record updated');
+        }}
+        onToast={showToast}
+      />
+
       <div className="two-col">
         <section className="detail-card" aria-labelledby="steps-heading">
           <h2 id="steps-heading" className="detail-card__title">
@@ -108,7 +158,6 @@ export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }
         </section>
       </div>
 
-      {/* 6–7. Equipment, muscles, difficulty, recommendation */}
       <section className="detail-card exercise-facts" aria-labelledby="facts-heading">
         <h2 id="facts-heading" className="detail-card__title">
           Equipment &amp; details
@@ -149,32 +198,11 @@ export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }
         )}
       </section>
 
-      {/* 8. Today's variation */}
-      <TodayVariationToggle selected={selectedToday} busy={toggling} onToggle={() => void toggleToday()} />
-
-      {/* 9. Set Tracker */}
-      <SetTracker
-        exercise={exercise}
-        template={template}
-        completed={completed}
-        record={record}
-        onSavePlan={(plan) => savePlan(plan, exercise.measure)}
-        onSetCompleted={setCompleted}
-        onAcceptPr={async (candidate) => {
-          await saveRecord(
-            { recordDate: todayKey, weight: candidate.weight, unit: candidate.unit, reps: candidate.reps, sets: null, notes: record?.notes ?? null },
-            exercise.measure,
-            needsWeight,
-          );
-          showToast('Personal record updated');
-        }}
-        onToast={showToast}
-      />
-
-      {/* 10. Personal Record */}
       <PersonalRecordPanel
         exercise={exercise}
         record={record}
+        hideSummary
+        openRequest={prRequest}
         onSave={(input) => saveRecord(input, exercise.measure, needsWeight)}
         onDelete={removeRecord}
         onToast={showToast}

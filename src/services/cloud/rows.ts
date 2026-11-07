@@ -1,6 +1,7 @@
 import { DEFAULT_GENDER, isGender } from '../../constants/profileOptions';
 import type {
   AttendanceStatus,
+  BodyWeightEntry,
   DailyTrackerState,
   ExerciseSelection,
   PersonalRecord,
@@ -8,7 +9,9 @@ import type {
   SetPlan,
   SetTemplate,
   WeightUnit,
+  WorkoutPlan,
 } from '../../types/gym';
+import { isPlanType, parseCustomSchedule } from '../../utils/workoutPlan';
 
 /** Database row shapes (snake_case, as stored in Supabase). */
 
@@ -66,13 +69,32 @@ export interface RecordRow {
   updated_at: string;
 }
 
+export interface WorkoutPlanRow {
+  id: string;
+  profile_id: string;
+  plan_type: string;
+  split_name: string;
+  weekly_schedule: unknown;
+  updated_at: string;
+}
+
+export interface BodyWeightRow {
+  id: string;
+  profile_id: string;
+  recorded_date: string;
+  weight_kg: number | string;
+  updated_at: string;
+}
+
 export type CloudTable =
   | 'gym_profiles'
   | 'attendance_records'
   | 'daily_exercise_selections'
   | 'exercise_set_templates'
   | 'daily_set_tracker_states'
-  | 'exercise_personal_records';
+  | 'exercise_personal_records'
+  | 'profile_workout_plans'
+  | 'body_weight_entries';
 
 export const CLOUD_TABLES: readonly CloudTable[] = [
   'gym_profiles',
@@ -81,6 +103,8 @@ export const CLOUD_TABLES: readonly CloudTable[] = [
   'exercise_set_templates',
   'daily_set_tracker_states',
   'exercise_personal_records',
+  'profile_workout_plans',
+  'body_weight_entries',
 ];
 
 /* ---------- JSON column parsing (defensive: rows are external data) ---------- */
@@ -153,6 +177,21 @@ export function toTrackerState(row: TrackerRow): DailyTrackerState {
     completedSets: (row.completed_sets ?? []).filter((n) => Number.isInteger(n) && n >= 0),
     updatedAt: row.updated_at,
   };
+}
+
+export function toWorkoutPlan(row: WorkoutPlanRow): WorkoutPlan | null {
+  if (!isPlanType(row.plan_type)) return null;
+  const days = parseCustomSchedule(row.weekly_schedule);
+  if (!days) return null;
+  const splitName = row.split_name.trim();
+  if (!splitName) return null;
+  return { id: row.id, profileId: row.profile_id, planType: row.plan_type, splitName, days, updatedAt: row.updated_at };
+}
+
+export function toBodyWeight(row: BodyWeightRow): BodyWeightEntry | null {
+  const weightKg = typeof row.weight_kg === 'number' ? row.weight_kg : Number(row.weight_kg);
+  if (!Number.isFinite(weightKg) || weightKg <= 0) return null;
+  return { id: row.id, profileId: row.profile_id, date: row.recorded_date, weightKg, updatedAt: row.updated_at };
 }
 
 export function toPersonalRecord(row: RecordRow): PersonalRecord | null {

@@ -8,10 +8,12 @@ import {
   type AttendanceRow,
   type CloudTable,
   type ProfileRow,
+  type BodyWeightRow,
   type RecordRow,
   type SelectionRow,
   type TemplateRow,
   type TrackerRow,
+  type WorkoutPlanRow,
 } from '../services/cloud/rows';
 import { addDays, toDateKey } from '../utils/dateUtils';
 
@@ -41,6 +43,8 @@ export interface CloudSnapshot {
   templates: TemplateRow[];
   trackers: TrackerRow[];
   records: RecordRow[];
+  workoutPlans: WorkoutPlanRow[];
+  bodyWeights: BodyWeightRow[];
   /** storage path → signed URL */
   photoUrls: Record<string, string>;
 }
@@ -52,6 +56,8 @@ type RowsByTable = {
   exercise_set_templates: TemplateRow;
   daily_set_tracker_states: TrackerRow;
   exercise_personal_records: RecordRow;
+  profile_workout_plans: WorkoutPlanRow;
+  body_weight_entries: BodyWeightRow;
 };
 
 const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
@@ -61,6 +67,8 @@ const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
   exercise_set_templates: 'templates',
   daily_set_tracker_states: 'trackers',
   exercise_personal_records: 'records',
+  profile_workout_plans: 'workoutPlans',
+  body_weight_entries: 'bodyWeights',
 };
 
 const INITIAL: CloudSnapshot = {
@@ -76,6 +84,8 @@ const INITIAL: CloudSnapshot = {
   templates: [],
   trackers: [],
   records: [],
+  workoutPlans: [],
+  bodyWeights: [],
   photoUrls: {},
 };
 
@@ -131,7 +141,7 @@ export const cloudStore = {
     lastFullRefresh = Date.now();
     setState({ syncing: true });
     try {
-      const results = await Promise.all(CLOUD_TABLES.map((table) => loadTable(table)));
+      const results = await Promise.all(CLOUD_TABLES.map((table) => loadTableOrEmpty(table)));
       if (myGeneration !== generation) return;
       const patch: Partial<CloudSnapshot> = {};
       CLOUD_TABLES.forEach((table, index) => {
@@ -157,7 +167,7 @@ export const cloudStore = {
       window.setTimeout(() => {
         pendingTables.delete(table);
         const myGeneration = generation;
-        loadTable(table)
+        loadTableOrEmpty(table)
           .then(async (rows) => {
             if (myGeneration !== generation) return;
             setState({ [SLICE[table]]: rows, lastSyncedAt: Date.now() } as Partial<CloudSnapshot>);
@@ -192,6 +202,8 @@ export const cloudStore = {
       templates: state.templates.filter((row) => row.profile_id !== profileId),
       trackers: state.trackers.filter((row) => row.profile_id !== profileId),
       records: state.records.filter((row) => row.profile_id !== profileId),
+      workoutPlans: state.workoutPlans.filter((row) => row.profile_id !== profileId),
+      bodyWeights: state.bodyWeights.filter((row) => row.profile_id !== profileId),
     });
   },
 
@@ -206,6 +218,26 @@ function loadTable(table: CloudTable): Promise<unknown[]> {
     return fetchAllRows(table, [{ column: 'date', op: 'gte', value: toDateKey(addDays(new Date(), -1)) }]);
   }
   return fetchAllRows(table);
+}
+
+const OPTIONAL_TABLES = new Set<CloudTable>(['profile_workout_plans', 'body_weight_entries']);
+
+/** New tables may not exist until the Phase 4 SQL migration is applied. */
+function isMissingOptionalTable(table: CloudTable, error: unknown): boolean {
+  if (!OPTIONAL_TABLES.has(table) || typeof error !== 'object' || error === null) return false;
+  const details = error as { code?: unknown; message?: unknown; status?: unknown };
+  const code = typeof details.code === 'string' ? details.code : '';
+  const message = typeof details.message === 'string' ? details.message : '';
+  return code === 'PGRST205' || code === '42P01' || details.status === 404 || /schema cache|does not exist|could not find the table/i.test(message);
+}
+
+async function loadTableOrEmpty(table: CloudTable): Promise<unknown[]> {
+  try {
+    return await loadTable(table);
+  } catch (error) {
+    if (isMissingOptionalTable(table, error)) return [];
+    throw error;
+  }
 }
 
 async function refreshPhotoUrls(forceAll: boolean): Promise<void> {
