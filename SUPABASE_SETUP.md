@@ -116,11 +116,46 @@ select count(*) from public.profile_workout_split_templates;
 select profile_id, plan_type, split_name, active_split_template_id from public.profile_workout_plans;
 ```
 
+## 8d. Phase 6 database update (you, existing projects — required before publishing Phase 6)
+1. *(Recommended)* Back up first: **Database → Backups**, or export the tables you care about.
+2. Open **SQL Editor → New query**, paste the **whole** file
+   `supabase/migrations/20261109_phase6_shared_splits_themes_pins.sql`, and click **Run**.
+   It works whether or not you ran the Phase 5 migration.
+3. It is additive and idempotent (safe to run again; a split you delete later is not re-created):
+   - enables `pgcrypto` (schema `extensions`) for bcrypt PIN hashes;
+   - adds `gym_profiles.theme_key` (existing profiles become `lime`);
+   - creates the shared library `account_workout_split_templates` and copies **every** existing
+     custom split into it (Phase 5 splits keep their ids, names, schedules, dates and source profile;
+     same-named splits from different profiles are all kept), adds
+     `profile_workout_plans.active_account_split_id` and keeps each profile's current selection;
+   - creates `profile_pin_security` (no API access at all) and the PIN functions;
+   - RLS, policies, triggers, indexes and the Realtime entry for the new shared table.
+4. Check the result (read-only):
+   ```sql
+   select count(*) as shared_splits from public.account_workout_split_templates;
+   select source_key, target_id from public.workout_split_migration_log order by migrated_at;
+   select profile_id, plan_type, active_account_split_id from public.profile_workout_plans;
+   select relname from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and not relrowsecurity;  -- must return no rows
+   ```
+   `shared_splits` should equal the number of Phase 5 saved splits (or, without Phase 5, the
+   number of profiles that had a plan row). Every `CUSTOM` plan should have an `active_account_split_id`.
+5. Then publish the new `docs/` build.
+
+**Profile PIN notes.** PINs are bcrypt-hashed in the database, checked only by
+`SECURITY DEFINER` functions that verify `auth.uid()` owns the profile, and never returned by any
+query or Realtime event. Five wrong PINs lock the profile for 1 minute, then 2, 4 … up to 60
+minutes on repeated lockouts. **Forgot PIN** asks for the account password, then clears the PIN
+(the database requires a sign-in within the last 10 minutes). The PIN is a privacy lock between
+people sharing one account, not a replacement for the account password.
+
 ## 9. Realtime (check)
 `schema.sql` already adds the tables to Realtime. To confirm:
 
 1. Open **Database** → **Publications** → `supabase_realtime`.
-2. Make sure these nine tables are ticked:
+2. Make sure these tables are ticked (`account_workout_split_templates` is the one the Phase 6
+   app uses; `profile_workout_split_templates` is the Phase 5 legacy table; `profile_pin_security`
+   must **not** be published):
+   - `account_workout_split_templates`
    - `gym_profiles`
    - `attendance_records`
    - `daily_exercise_selections`

@@ -1,4 +1,5 @@
 import { isGender } from '../../constants/profileOptions';
+import { DEFAULT_PROFILE_THEME, isProfileThemeKey } from '../../constants/profileThemes';
 import { getSupabase } from '../../lib/supabaseClient';
 import { cloudStore } from '../../store/cloudStore';
 import type { Profile, ProfileInput } from '../../types/gym';
@@ -17,6 +18,7 @@ function validateInput(input: ProfileInput, existing: readonly Profile[], exclud
   if (!isGender(input.gender)) throw new CloudError('Please choose a valid gender option.', 'validation');
   if (!isValidDateKey(input.trackingStartDate)) throw new CloudError('Please choose a valid tracking start date.', 'validation');
   if (input.trackingStartDate > toDateKey(new Date())) throw new CloudError('The tracking start date can’t be in the future.', 'validation');
+  if (!isProfileThemeKey(input.themeKey)) throw new CloudError('Please choose a colour theme.', 'validation');
   const detailsError = validateProfileDetails(input.ageYears, input.heightCm);
   if (detailsError) throw new CloudError(detailsError, 'validation');
 }
@@ -30,12 +32,17 @@ function profileDetailChanges(input: ProfileInput, current?: Profile): Record<st
   const heightCm = normalizeHeightCm(input.heightCm);
   if (input.ageYears !== (current?.ageYears ?? null)) changes.age_years = input.ageYears;
   if (heightCm !== (current?.heightCm ?? null)) changes.height_cm = heightCm;
+  // Phase 6 theme: sent only when it differs (the column defaults to lime).
+  if (input.themeKey !== (current?.themeKey ?? DEFAULT_PROFILE_THEME)) changes.theme_key = input.themeKey;
   return changes;
 }
 
 function duplicateNameGuard(error: unknown): never {
   if (isMissingColumnError(error)) {
-    throw new CloudError('Age and height need the Phase 5 database update. Run the Phase 5 SQL migration in Supabase, then try again.', 'validation');
+    throw new CloudError(
+      'Age, height and colour themes need the latest database updates. Run the Phase 5 and Phase 6 SQL migrations in Supabase, then try again.',
+      'validation',
+    );
   }
   const cloudError = toCloudError(error, 'Could not save the profile.');
   if (cloudError.kind === 'conflict') throw new CloudError('A profile with this name already exists.', 'conflict');

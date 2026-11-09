@@ -1,4 +1,5 @@
 import { DEFAULT_GENDER, isGender } from '../../constants/profileOptions';
+import { DEFAULT_PROFILE_THEME, isProfileThemeKey } from '../../constants/profileThemes';
 import type {
   AttendanceStatus,
   BodyWeightEntry,
@@ -26,6 +27,8 @@ export interface ProfileRow {
   /** Phase 5 columns: absent until the Phase 5 migration runs. */
   age_years?: number | null;
   height_cm?: number | string | null;
+  /** Phase 6 column: absent until the Phase 6 migration runs (then defaults to lime). */
+  theme_key?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -81,12 +84,16 @@ export interface WorkoutPlanRow {
   weekly_schedule: unknown;
   /** Phase 5 column: absent until the Phase 5 migration runs. */
   active_split_template_id?: string | null;
+  /** Phase 6 column: the active (or remembered) shared split of this profile. */
+  active_account_split_id?: string | null;
   updated_at: string;
 }
 
+/** Phase 6 account-wide shared split (`account_workout_split_templates`). */
 export interface SplitTemplateRow {
   id: string;
-  profile_id: string;
+  owner_id: string;
+  source_profile_id: string | null;
   split_name: string;
   weekly_schedule: unknown;
   created_at: string;
@@ -110,7 +117,7 @@ export type CloudTable =
   | 'exercise_personal_records'
   | 'profile_workout_plans'
   | 'body_weight_entries'
-  | 'profile_workout_split_templates';
+  | 'account_workout_split_templates';
 
 export const CLOUD_TABLES: readonly CloudTable[] = [
   'gym_profiles',
@@ -121,7 +128,7 @@ export const CLOUD_TABLES: readonly CloudTable[] = [
   'exercise_personal_records',
   'profile_workout_plans',
   'body_weight_entries',
-  'profile_workout_split_templates',
+  'account_workout_split_templates',
 ];
 
 /* ---------- JSON column parsing (defensive: rows are external data) ---------- */
@@ -180,6 +187,7 @@ export function toProfile(row: ProfileRow, photoUrl: string | null): Profile {
     photoUrl,
     ageYears: toOptionalNumber(row.age_years),
     heightCm: toOptionalNumber(row.height_cm),
+    themeKey: isProfileThemeKey(row.theme_key) ? row.theme_key : DEFAULT_PROFILE_THEME,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -217,7 +225,7 @@ export function toWorkoutPlan(row: WorkoutPlanRow): WorkoutPlan | null {
     planType: row.plan_type,
     splitName,
     days,
-    activeTemplateId: row.active_split_template_id ?? null,
+    activeWorkoutSplitId: row.active_account_split_id ?? null,
     updatedAt: row.updated_at,
   };
 }
@@ -226,7 +234,15 @@ export function toSplitTemplate(row: SplitTemplateRow): WorkoutSplitTemplate | n
   const days = parseCustomSchedule(row.weekly_schedule);
   const splitName = row.split_name.trim();
   if (!days || !splitName) return null;
-  return { id: row.id, profileId: row.profile_id, splitName, days, createdAt: row.created_at, updatedAt: row.updated_at };
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    sourceProfileId: row.source_profile_id ?? null,
+    splitName,
+    days,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export function toBodyWeight(row: BodyWeightRow): BodyWeightEntry | null {

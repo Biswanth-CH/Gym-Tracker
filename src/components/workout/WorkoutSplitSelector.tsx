@@ -7,7 +7,10 @@ import { Modal } from '../Modal';
 
 interface WorkoutSplitSelectorProps {
   activeWorkoutSplit: ActiveWorkoutSplit;
+  /** The account-wide shared library (every profile of this account sees the same list). */
   splitTemplates: readonly WorkoutSplitTemplate[];
+  /** Profiles currently using each split (any profile of the account). */
+  profileCountBySplitId: ReadonlyMap<string, number>;
   onActivateBuiltInPpl: () => Promise<void>;
   onActivateWorkoutSplit: (template: WorkoutSplitTemplate) => Promise<void>;
   onCreateWorkoutSplit: () => void;
@@ -33,6 +36,7 @@ function trainingDaysLabel(days: readonly CustomDayPlan[]): string {
 export function WorkoutSplitSelector({
   activeWorkoutSplit,
   splitTemplates,
+  profileCountBySplitId,
   onActivateBuiltInPpl,
   onActivateWorkoutSplit,
   onCreateWorkoutSplit,
@@ -69,6 +73,12 @@ export function WorkoutSplitSelector({
     }
   };
 
+  const deleteWarning = (template: WorkoutSplitTemplate, isActiveHere: boolean): string => {
+    const users = profileCountBySplitId.get(template.id) ?? 0;
+    const usedBy = users > 0 ? ` It is active for ${users} ${users === 1 ? 'profile' : 'profiles'}, which will switch to PPL.` : '';
+    return `This deletes the split for every profile of your account.${usedBy}${isActiveHere && users === 0 ? ' This profile switches to PPL.' : ''} Other splits are not affected.`;
+  };
+
   const confirmDelete = async (template: WorkoutSplitTemplate) => {
     await run(`delete:${template.id}`, () => onDeleteWorkoutSplit(template), false);
     setSplitPendingDelete(null);
@@ -85,9 +95,9 @@ export function WorkoutSplitSelector({
           aria-label={`Workout split: ${activeSplitName(activeWorkoutSplit)}. Change split`}
           data-testid="split-selector"
         >
-          <span className="split-selector__text">
+          <span className="split-selector__text" data-testid="split-selector-label">
             <span className="split-selector__name">{activeSplitName(activeWorkoutSplit)}</span>
-            <span className="split-selector__type">{activeTypeLabel}</span>
+            <span className="split-selector__type">{' – '}{activeTypeLabel}</span>
           </span>
           <ChevronDown size={16} aria-hidden="true" />
         </button>
@@ -103,9 +113,9 @@ export function WorkoutSplitSelector({
         description={
           splitPendingDelete
             ? splitPendingDelete.id === activeTemplateId
-              ? 'This saved split will be deleted. It is active now, so your weekly plan switches to Push Pull Legs. Other splits are not affected.'
-              : 'This saved split will be deleted. Your active plan and other splits are not affected.'
-            : 'Tap a split to make it your weekly plan. Your saved splits are kept when you switch.'
+              ? deleteWarning(splitPendingDelete, true)
+              : deleteWarning(splitPendingDelete, false)
+            : 'Shared by all profiles of your account. Tap a split to make it THIS profile’s weekly plan; other profiles keep their own choice.'
         }
         placement="top"
       >
@@ -195,7 +205,10 @@ export function WorkoutSplitSelector({
                       disabled={busyKey !== null}
                     >
                       <span className="split-option__name">{template.splitName}</span>
-                      <span className="split-option__meta">Custom · {trainingDaysLabel(template.days)}</span>
+                      <span className="split-option__meta">
+                        Custom · {trainingDaysLabel(template.days)}
+                        {(profileCountBySplitId.get(template.id) ?? 0) > 0 && ` · used by ${profileCountBySplitId.get(template.id)}`}
+                      </span>
                     </button>
                     <span className="split-option__status">
                       {busyKey === `activate:${template.id}` ? <Loader2 size={16} className="spin" aria-hidden="true" /> : isActive ? <ActiveBadge /> : null}

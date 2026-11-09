@@ -3,6 +3,7 @@ import type { WeightUnit } from '../../types/gym';
 import type { WeightPoint } from '../../utils/bodyWeightAnalytics';
 import { formatShortDate } from '../../utils/dateUtils';
 import { convertWeight, formatNumber, unitLabel } from '../../utils/workoutUtils';
+import { buildWeightAxisTicks } from '../../utils/weightAxis';
 
 interface BodyWeightChartProps {
   points: readonly WeightPoint[];
@@ -19,8 +20,8 @@ export function BodyWeightChart({ points, unit, start, end }: BodyWeightChartPro
   }
 
   const width = 320;
-  const height = 168;
-  const pad = { left: 36, right: 12, top: 16, bottom: 28 };
+  const height = 184;
+  const pad = { left: 36, right: 14, top: 16, bottom: 40 };
   const values = points.map((point) => convertWeight(point.weightKg, 'KG', unit));
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -29,11 +30,11 @@ export function BodyWeightChart({ points, unit, start, end }: BodyWeightChartPro
   const endTime = new Date(`${end}T00:00:00`).getTime();
   const timeSpan = Math.max(1, endTime - startTime);
 
-  const xFor = (date: string) => {
-    if (points.length === 1) return pad.left + (width - pad.left - pad.right) / 2;
-    const time = new Date(`${date}T00:00:00`).getTime();
-    return pad.left + ((time - startTime) / timeSpan) * (width - pad.left - pad.right);
-  };
+  const plotWidth = width - pad.left - pad.right;
+  const xForTick = (date: string) => pad.left + ((new Date(`${date}T00:00:00`).getTime() - startTime) / timeSpan) * plotWidth;
+  const ticks = buildWeightAxisTicks(start, end);
+  // Every point sits at its real date, so it lines up with the date ticks below.
+  const xFor = xForTick;
   const yFor = (value: number) => pad.top + (1 - (value - min) / span) * (height - pad.top - pad.bottom);
   const coords = points.map((point, index) => ({ x: xFor(point.date), y: yFor(values[index]), point, value: values[index] }));
   const line = coords.map((coord) => `${coord.x},${coord.y}`).join(' ');
@@ -50,6 +51,24 @@ export function BodyWeightChart({ points, unit, start, end }: BodyWeightChartPro
         <text x={4} y={height - pad.bottom} className="weight-chart__tick">
           {formatNumber(min)}
         </text>
+        {ticks.map((tick) => {
+          const x = xForTick(tick.dateKey);
+          // Keep edge labels inside the chart instead of clipping them.
+          const anchor = x < pad.left + 14 ? 'start' : x > width - pad.right - 14 ? 'end' : 'middle';
+          return (
+            <g key={tick.dateKey} className="weight-chart__x-tick" data-testid="weight-axis-tick">
+              <line x1={x} y1={height - pad.bottom} x2={x} y2={height - pad.bottom + 4} className="weight-chart__axis" />
+              <text x={x} y={height - pad.bottom + 15} textAnchor={anchor} className="weight-chart__tick">
+                {tick.label}
+              </text>
+              {tick.sublabel && (
+                <text x={x} y={height - pad.bottom + 27} textAnchor={anchor} className="weight-chart__tick weight-chart__tick--sub">
+                  {tick.sublabel}
+                </text>
+              )}
+            </g>
+          );
+        })}
         {coords.length > 1 && <polyline points={line} className="weight-chart__line" />}
         {coords.map((coord, index) => (
           <g key={coord.point.date}>

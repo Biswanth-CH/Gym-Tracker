@@ -1,4 +1,5 @@
 import { CalendarRange, ChevronLeft, ChevronRight, Dumbbell, Flame, Gauge } from 'lucide-react';
+import { formatStreak } from '../../utils/streakDisplay';
 import { formatPercentage, type MonthInfo, type PeriodStats } from '../../utils/consistencyUtils';
 
 interface ConsistencySummaryProps {
@@ -73,9 +74,7 @@ export function ConsistencySummary({
           <dt>
             <Flame size={16} aria-hidden="true" /> Current Streak
           </dt>
-          <dd data-testid="stat-streak">
-            {streak} <span className="stat-card__unit">{streak === 1 ? 'day' : 'days'}</span>
-          </dd>
+          <dd data-testid="stat-streak">{formatStreak(streak)}</dd>
           <dd className="stat-card__hint">Sundays don’t break it</dd>
         </div>
       </dl>

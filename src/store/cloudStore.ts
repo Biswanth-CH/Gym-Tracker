@@ -2,6 +2,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { getSupabase } from '../lib/supabaseClient';
 import { errorMessage } from '../services/cloud/cloudErrors';
 import { fetchAllRows } from '../services/cloud/db';
+import { fetchLockedProfileIds } from '../services/cloud/profileLockQueries';
 import { SIGNED_URL_TTL_SECONDS, signProfilePhotos } from '../services/cloud/profilePhotoService';
 import {
   CLOUD_TABLES,
@@ -47,6 +48,8 @@ export interface CloudSnapshot {
   workoutPlans: WorkoutPlanRow[];
   bodyWeights: BodyWeightRow[];
   splitTemplates: SplitTemplateRow[];
+  /** PIN-locked profile ids (from list_locked_profiles(); never hashes). */
+  lockedProfileIds: string[];
   /** storage path → signed URL */
   photoUrls: Record<string, string>;
 }
@@ -60,7 +63,7 @@ type RowsByTable = {
   exercise_personal_records: RecordRow;
   profile_workout_plans: WorkoutPlanRow;
   body_weight_entries: BodyWeightRow;
-  profile_workout_split_templates: SplitTemplateRow;
+  account_workout_split_templates: SplitTemplateRow;
 };
 
 const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
@@ -72,7 +75,7 @@ const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
   exercise_personal_records: 'records',
   profile_workout_plans: 'workoutPlans',
   body_weight_entries: 'bodyWeights',
-  profile_workout_split_templates: 'splitTemplates',
+  account_workout_split_templates: 'splitTemplates',
 };
 
 const INITIAL: CloudSnapshot = {
@@ -91,6 +94,7 @@ const INITIAL: CloudSnapshot = {
   workoutPlans: [],
   bodyWeights: [],
   splitTemplates: [],
+  lockedProfileIds: [],
   photoUrls: {},
 };
 
@@ -146,12 +150,17 @@ export const cloudStore = {
     lastFullRefresh = Date.now();
     setState({ syncing: true });
     try {
-      const results = await Promise.all(CLOUD_TABLES.map((table) => loadTableOrEmpty(table)));
+      // Locks load together with the data so a locked profile never renders before its lock is known.
+      const [results, lockedProfileIds] = await Promise.all([
+        Promise.all(CLOUD_TABLES.map((table) => loadTableOrEmpty(table))),
+        fetchLockedProfileIds().catch(() => null),
+      ]);
       if (myGeneration !== generation) return;
       const patch: Partial<CloudSnapshot> = {};
       CLOUD_TABLES.forEach((table, index) => {
         (patch as Record<string, unknown>)[SLICE[table]] = results[index];
       });
+      if (lockedProfileIds) patch.lockedProfileIds = lockedProfileIds;
       setState({ ...patch, phase: 'ready', error: null, syncing: false, lastSyncedAt: Date.now() });
       await refreshPhotoUrls(false);
     } catch (error) {
@@ -176,7 +185,8 @@ export const cloudStore = {
           .then(async (rows) => {
             if (myGeneration !== generation) return;
             setState({ [SLICE[table]]: rows, lastSyncedAt: Date.now() } as Partial<CloudSnapshot>);
-            if (table === 'gym_profiles') await refreshPhotoUrls(false);
+            // PIN set / removed bumps the profile row, so re-read locks with profiles.
+            if (table === 'gym_profiles') await Promise.all([refreshPhotoUrls(false), cloudStore.refreshLockedProfiles()]);
           })
           .catch((error) => setState({ error: errorMessage(error, 'Sync failed.') }));
       }, 150),
@@ -209,8 +219,19 @@ export const cloudStore = {
       records: state.records.filter((row) => row.profile_id !== profileId),
       workoutPlans: state.workoutPlans.filter((row) => row.profile_id !== profileId),
       bodyWeights: state.bodyWeights.filter((row) => row.profile_id !== profileId),
-      splitTemplates: state.splitTemplates.filter((row) => row.profile_id !== profileId),
     });
+  },
+
+  /** Re-reads which profiles are PIN locked. Keeps the last known list if the request fails. */
+  async refreshLockedProfiles(): Promise<void> {
+    const myGeneration = generation;
+    if (!state.userId) return;
+    try {
+      const lockedProfileIds = await fetchLockedProfileIds();
+      if (myGeneration === generation) setState({ lockedProfileIds });
+    } catch {
+      // Offline or transient error: the next refresh retries.
+    }
   },
 
   clearError(): void {
@@ -226,9 +247,9 @@ function loadTable(table: CloudTable): Promise<unknown[]> {
   return fetchAllRows(table);
 }
 
-const OPTIONAL_TABLES = new Set<CloudTable>(['profile_workout_plans', 'body_weight_entries', 'profile_workout_split_templates']);
+const OPTIONAL_TABLES = new Set<CloudTable>(['profile_workout_plans', 'body_weight_entries', 'account_workout_split_templates']);
 
-/** Newer tables may not exist until the Phase 4 / Phase 5 SQL migrations are applied. */
+/** Newer tables may not exist until the Phase 4 / Phase 6 SQL migrations are applied. */
 function isMissingOptionalTable(table: CloudTable, error: unknown): boolean {
   if (!OPTIONAL_TABLES.has(table) || typeof error !== 'object' || error === null) return false;
   const details = error as { code?: unknown; message?: unknown; status?: unknown };

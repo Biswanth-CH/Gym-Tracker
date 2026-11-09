@@ -15,7 +15,7 @@ import { errorMessage } from '../services/cloud/cloudErrors';
 
 type Mode = 'sign-in' | 'sign-up' | 'forgot';
 
-function PasswordField({
+export function PasswordField({
   id,
   label,
   value,

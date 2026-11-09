@@ -11,6 +11,7 @@ import type { ExerciseCategory, Route } from '../types/gym';
  *   #/profile/<id>
  *   #/profile/<id>/consistency
  *   #/profile/<id>/overview
+ *   #/profile/<id>/library[/muscle/<muscle>[/region/<region>[/alternatives | /exercise/<exercise>]]]
  *   #/profile/<id>/day/<day>
  *   #/profile/<id>/day/<day>/muscle/<muscle>
  *   #/profile/<id>/day/<day>/muscle/<muscle>/region/<region>[/alternatives]
@@ -37,6 +38,21 @@ export function parseHash(hash: string): Route {
 
   if (s[2] === 'consistency') return { name: 'consistency', profileId };
   if (s[2] === 'overview') return { name: 'overview', profileId };
+  if (s[2] === 'library') {
+    if (s[3] !== 'muscle' || !s[4]) return { name: 'library', profileId };
+    const libraryMuscleId = s[4];
+    if (s[5] !== 'region' || !s[6]) return { name: 'library-muscle', profileId, muscleId: libraryMuscleId };
+    if (s[7] === 'exercise' && s[8]) {
+      return { name: 'library-exercise', profileId, muscleId: libraryMuscleId, regionId: s[6], exerciseId: s[8] };
+    }
+    return {
+      name: 'library-region',
+      profileId,
+      muscleId: libraryMuscleId,
+      regionId: s[6],
+      category: s[7] === CATEGORY_SEGMENT.ALTERNATIVE ? 'ALTERNATIVE' : 'MACHINE',
+    };
+  }
   if (s[2] !== 'day' || !s[3] || !isDayId(s[3])) return { name: 'dashboard', profileId };
   const dayId = s[3];
 
@@ -71,6 +87,16 @@ export function routeToHash(route: Route): string {
       return `#/profile/${enc(route.profileId)}/consistency`;
     case 'overview':
       return `#/profile/${enc(route.profileId)}/overview`;
+    case 'library':
+      return `#/profile/${enc(route.profileId)}/library`;
+    case 'library-muscle':
+      return `#/profile/${enc(route.profileId)}/library/muscle/${enc(route.muscleId)}`;
+    case 'library-region': {
+      const base = `#/profile/${enc(route.profileId)}/library/muscle/${enc(route.muscleId)}/region/${enc(route.regionId)}`;
+      return route.category === 'ALTERNATIVE' ? `${base}/${CATEGORY_SEGMENT.ALTERNATIVE}` : base;
+    }
+    case 'library-exercise':
+      return `#/profile/${enc(route.profileId)}/library/muscle/${enc(route.muscleId)}/region/${enc(route.regionId)}/exercise/${enc(route.exerciseId)}`;
     case 'day':
       return `#/profile/${enc(route.profileId)}/day/${route.dayId}`;
     case 'muscle':

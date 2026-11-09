@@ -176,3 +176,17 @@ export function cleanAuthParamsFromUrl(): void {
   const hash = hasHashParams ? '#/' : url.hash;
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${hash}`);
 }
+
+/**
+ * Re-checks the account password (Forgot PIN). Signing in again issues a fresh session
+ * whose JWT `amr` timestamp the database checks before it allows a PIN reset.
+ */
+export async function confirmAccountPassword(email: string, password: string): Promise<void> {
+  if (!email) throw new CloudError('Your account email is unknown. Sign out and sign in again.', 'auth');
+  const { error } = await getSupabase().auth.signInWithPassword({ email, password });
+  if (error) {
+    const message = typeof error.message === 'string' ? error.message : '';
+    if (/invalid login credentials/i.test(message)) throw new CloudError('That password is not correct.', 'auth');
+    throw friendlyAuthError(error, 'Could not confirm your password.');
+  }
+}

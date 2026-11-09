@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarCheck2, CalendarDays, ChevronRight, Dumbbell, Flame, Gauge, LogOut, Pencil, Scale, Users } from 'lucide-react';
+import { BookOpen, CalendarCheck2, CalendarDays, ChevronRight, Dumbbell, Flame, Gauge, LogOut, Pencil, Scale, Users } from 'lucide-react';
 import { useAuth } from '../auth/AuthProvider';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -14,15 +14,17 @@ import { useToast } from '../hooks/useToast';
 import { errorMessage } from '../services/cloud/cloudErrors';
 import type { Profile, ProfileInput } from '../types/gym';
 import { calculateCurrentStreak, calculateMonthStats, formatPercentage, getTrackedMonths } from '../utils/consistencyUtils';
-import { formatShortDate } from '../utils/dateUtils';
 import { calculateBmi, formatBmi, formatHeightCm } from '../utils/profileDetails';
 import { formatNumber } from '../utils/workoutUtils';
+import { formatStreak } from '../utils/streakDisplay';
 
 interface ProfileOverviewPageProps {
   profile: Profile;
   onBack: () => void;
   onOpenWeeklyPlan: () => void;
   onOpenConsistency: () => void;
+  /** Full exercise library (not limited by the active split). */
+  onOpenLibrary: () => void;
   /** Back to the Profiles page. Keeps the Supabase session. */
   onSwitchProfile: () => void;
   onUpdateProfile: (input: ProfileInput) => Promise<void>;
@@ -35,6 +37,7 @@ export function ProfileOverviewPage({
   onBack,
   onOpenWeeklyPlan,
   onOpenConsistency,
+  onOpenLibrary,
   onSwitchProfile,
   onUpdateProfile,
   onDeleteProfile,
@@ -78,6 +81,7 @@ export function ProfileOverviewPage({
         <BackButton label="Weekly plan" onClick={onBack} />
       </nav>
 
+      {/* Compact identity: picture on the left, details on the right (stacks on very narrow screens). */}
       <section className="overview-identity" aria-labelledby="overview-name">
         <button
           type="button"
@@ -89,23 +93,34 @@ export function ProfileOverviewPage({
         >
           <Pencil size={16} aria-hidden="true" />
         </button>
-        <ProfileAvatar seed={profile.id} name={profile.name} photoUrl={profile.photoUrl} size={96} className="overview-identity__avatar" />
-        <h1 id="overview-name" className="overview-identity__name">
-          {profile.name}
-        </h1>
-        <p className="overview-identity__gender">{getGenderLabel(profile.gender)}</p>
-        <p className="overview-identity__details" data-testid="overview-details">
-          {details.length > 0 ? details.join(' | ') : 'Add your age and height in Edit Profile'}
-        </p>
-        {bmi && (
-          <p className="overview-identity__details" data-testid="overview-bmi">
-            BMI: <strong>{formatBmi(bmi)}</strong>
-          </p>
-        )}
-        <p className="overview-identity__weight" data-testid="overview-weight">
-          Weight: {latestWeight ? <strong>{latestWeightLabel}</strong> : 'not logged yet'}
-          {latestWeight && <span className="muted"> · {formatShortDate(latestWeight.date)}</span>}
-        </p>
+        <ProfileAvatar seed={profile.id} name={profile.name} photoUrl={profile.photoUrl} size={72} className="overview-identity__avatar" />
+        <div className="overview-identity__info">
+          <div className="overview-identity__headline">
+            <h1 id="overview-name" className="overview-identity__name">
+              {profile.name}
+            </h1>
+            <span className="overview-identity__gender">{getGenderLabel(profile.gender)}</span>
+          </div>
+          <dl className="overview-facts">
+            <div className="overview-fact" data-testid="overview-details">
+              <dt>Age</dt>
+              <dd>{profile.ageYears !== null ? profile.ageYears : <span className="muted">—</span>}</dd>
+            </div>
+            <div className="overview-fact" data-testid="overview-height">
+              <dt>Height</dt>
+              <dd>{profile.heightCm !== null ? formatHeightCm(profile.heightCm) : <span className="muted">—</span>}</dd>
+            </div>
+            <div className="overview-fact" data-testid="overview-weight">
+              <dt>Weight</dt>
+              <dd>{latestWeight ? latestWeightLabel : <span className="muted">—</span>}</dd>
+            </div>
+            <div className="overview-fact" data-testid="overview-bmi">
+              <dt>BMI</dt>
+              <dd>{bmi ? formatBmi(bmi) : <span className="muted">—</span>}</dd>
+            </div>
+          </dl>
+          {details.length === 0 && <p className="overview-identity__hint">Add age and height in Edit Profile.</p>}
+        </div>
       </section>
 
       <dl className="overview-stats" aria-label="Fitness statistics">
@@ -120,9 +135,7 @@ export function ProfileOverviewPage({
           <dt>
             <Flame size={14} aria-hidden="true" /> Streak
           </dt>
-          <dd data-testid="overview-streak">
-            {streak} <span className="overview-stat__unit">{streak === 1 ? 'day' : 'days'}</span>
-          </dd>
+          <dd data-testid="overview-streak">{formatStreak(streak)}</dd>
           <dd className="overview-stat__hint">Current</dd>
         </div>
         <div className="overview-stat">
@@ -152,6 +165,11 @@ export function ProfileOverviewPage({
         <button type="button" className="overview-link" onClick={onOpenConsistency} data-testid="overview-consistency-tracker">
           <CalendarCheck2 size={18} aria-hidden="true" />
           <span>Consistency Tracker</span>
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
+        <button type="button" className="overview-link" onClick={onOpenLibrary} data-testid="overview-library">
+          <BookOpen size={18} aria-hidden="true" />
+          <span>Exercise Library</span>
           <ChevronRight size={18} aria-hidden="true" />
         </button>
       </nav>

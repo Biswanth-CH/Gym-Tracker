@@ -14,6 +14,8 @@ interface MuscleRegionPageProps {
   group: MuscleGroup;
   region: MuscleRegion;
   category: ExerciseCategory;
+  /** Exercise variations chosen in the active split for this day. Undefined = the whole library. */
+  allowedExerciseIds?: ReadonlySet<string>;
   onBack: () => void;
   onChangeCategory: (category: ExerciseCategory) => void;
   onSelectExercise: (exercise: LibraryExercise) => void;
@@ -24,16 +26,16 @@ const TABS: Array<{ id: ExerciseCategory; label: string }> = [
   { id: 'ALTERNATIVE', label: 'Alternatives' },
 ];
 
-export function MuscleRegionPage({ profile, group, region, category, onBack, onChangeCategory, onSelectExercise }: MuscleRegionPageProps) {
+export function MuscleRegionPage({ profile, group, region, category, allowedExerciseIds, onBack, onChangeCategory, onSelectExercise }: MuscleRegionPageProps) {
   const records = usePersonalRecordsByExercise(profile.id);
   const { isSelected } = useExerciseSelections(profile.id);
   const todayKey = useToday();
   const tabsId = useId();
-  const exercises = getExercisesForRegion(region.id, category);
-  const counts = {
-    MACHINE: getExercisesForRegion(region.id, 'MACHINE').length,
-    ALTERNATIVE: getExercisesForRegion(region.id, 'ALTERNATIVE').length,
-  };
+  // On a workout day only the split's chosen variations are listed; the library shows everything.
+  const exercisesFor = (tab: ExerciseCategory) =>
+    getExercisesForRegion(region.id, tab).filter((exercise) => !allowedExerciseIds || allowedExerciseIds.has(exercise.id));
+  const exercises = exercisesFor(category);
+  const counts = { MACHINE: exercisesFor('MACHINE').length, ALTERNATIVE: exercisesFor('ALTERNATIVE').length };
 
   return (
     <div className="page page--wide">
@@ -77,9 +79,11 @@ export function MuscleRegionPage({ profile, group, region, category, onBack, onC
         {exercises.length === 0 ? (
           <EmptyState
             icon={category === 'MACHINE' ? <Cable size={28} aria-hidden="true" /> : <Dumbbell size={28} aria-hidden="true" />}
-            title="Nothing here with your equipment"
+            title={allowedExerciseIds ? "Not in today's selection" : 'Nothing here with your equipment'}
             message={
-              category === 'MACHINE'
+              allowedExerciseIds
+                ? 'None of the variations chosen for this workout day are in this tab. Check the other tab, or edit the split.'
+                : category === 'MACHINE'
                 ? 'None of the machines in your gym target this region directly. See the Alternatives tab.'
                 : 'No free-weight alternatives are listed for this region yet. See the Machines & Cables tab.'
             }

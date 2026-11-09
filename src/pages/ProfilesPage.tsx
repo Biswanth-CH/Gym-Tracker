@@ -1,10 +1,12 @@
-import { useState, type ReactNode } from 'react';
-import { Dumbbell, Plus, Users } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, Users } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { ProfileCard } from '../components/ProfileCard';
 import { ProfileModal } from '../components/ProfileModal';
 import { Toast } from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { useProfileLocks } from '../hooks/useProfileLocks';
+import { useProfileStreaks } from '../hooks/useProfileStreaks';
 import type { Profile, ProfileInput } from '../types/gym';
 
 interface ProfilesPageProps {
@@ -13,8 +15,6 @@ interface ProfilesPageProps {
   onCreateProfile: (input: ProfileInput) => Promise<void>;
   onUpdateProfile: (profile: Profile, input: ProfileInput) => Promise<void>;
   onDeleteProfile: (profileId: string) => Promise<void>;
-  /** Account email, sync status and sign-out. */
-  accountBar?: ReactNode;
 }
 
 type EditorState = { isOpen: false } | { isOpen: true; profile: Profile | null };
@@ -25,10 +25,11 @@ export function ProfilesPage({
   onCreateProfile,
   onUpdateProfile,
   onDeleteProfile,
-  accountBar,
 }: ProfilesPageProps) {
   const [editor, setEditor] = useState<EditorState>({ isOpen: false });
   const { toast, showToast } = useToast();
+  const streaks = useProfileStreaks(profiles);
+  const { isProfileLocked } = useProfileLocks();
 
   const editingProfile = editor.isOpen ? editor.profile : null;
   const openCreate = () => setEditor({ isOpen: true, profile: null });
@@ -55,23 +56,8 @@ export function ProfilesPage({
 
   return (
     <div className="page">
-      {accountBar}
-      <header className="hero">
-        <div className="brand">
-          <span className="brand__mark" aria-hidden="true">
-            <Dumbbell size={22} strokeWidth={2.4} />
-          </span>
-          <div className="brand__text">
-            <h1 className="brand__name">
-              Gym<span>Track</span>
-            </h1>
-            <p className="brand__caption">Built by Bisss!</p>
-          </div>
-        </div>
-        <p className="hero__subtitle">Build consistency. Track progress.</p>
-      </header>
 
-      <section className="section" aria-labelledby="profiles-heading">
+      <section className="section profiles-section" aria-labelledby="profiles-heading">
         <div className="section__header">
           <div>
             <h2 id="profiles-heading" className="section__title">
@@ -84,7 +70,7 @@ export function ProfilesPage({
             </p>
           </div>
           {profiles.length > 0 && (
-            <button type="button" className="button button--primary button--compact" onClick={openCreate}>
+            <button type="button" className="button button--subtle" onClick={openCreate} data-testid="add-profile">
               <Plus size={18} aria-hidden="true" />
               Add Profile
             </button>
@@ -109,6 +95,8 @@ export function ProfilesPage({
               <li key={profile.id}>
                 <ProfileCard
                   profile={profile}
+                  streakDays={streaks.get(profile.id) ?? 0}
+                  isLocked={isProfileLocked(profile.id)}
                   onOpen={onOpenProfile}
                   onEdit={(target) => setEditor({ isOpen: true, profile: target })}
                 />

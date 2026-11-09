@@ -1,5 +1,6 @@
 import { isMuscleGroupId } from '../constants/muscleGroups';
 import { WEEKLY_SCHEDULE, WORKOUT_CATEGORIES } from '../constants/workoutSchedule';
+import { normalizeDaySelections, parseMuscleGroupSelections } from './workoutSelection';
 import type {
   ActiveWorkoutSplit,
   CustomDayPlan,
@@ -15,7 +16,7 @@ import type {
 export const SPLIT_NAME_MAX_LENGTH = 40;
 export const DEFAULT_SPLIT_NAME = 'My Split';
 /** Display name of the built-in plan (never stored as a template, never deletable). */
-export const BUILT_IN_PPL_NAME = 'Push Pull Legs';
+export const BUILT_IN_PPL_NAME = 'PPL';
 
 const PUSH = new Set<MuscleGroupId>(['chest', 'shoulders', 'triceps']);
 const PULL = new Set<MuscleGroupId>(['back', 'biceps', 'forearms']);
@@ -51,6 +52,7 @@ export function customDayToWorkoutDay(day: CustomDayPlan): WorkoutDay | null {
     category,
     muscleGroupIds: day.isRest ? [] : [...day.muscleGroupIds],
     title: day.workoutName.trim() || (category === 'rest' ? 'Rest' : meta.dayName),
+    ...(day.isRest || !day.muscleGroupSelections ? {} : { muscleGroupSelections: day.muscleGroupSelections }),
   };
 }
 
@@ -83,12 +85,15 @@ export function parseCustomSchedule(value: unknown): CustomDayPlan[] | null {
     if (typeof candidate.workoutName !== 'string') return null;
     if (typeof candidate.isRest !== 'boolean') return null;
     if (!Array.isArray(candidate.muscleGroupIds) || !candidate.muscleGroupIds.every(isMuscleGroupId)) return null;
-    const muscleGroupIds = [...new Set(candidate.muscleGroupIds)];
+    const muscleGroupIds = candidate.isRest ? [] : [...new Set(candidate.muscleGroupIds)];
+    // Phase 6 nested selections are optional: missing → ALL regions and ALL exercises.
+    const muscleGroupSelections = candidate.isRest ? undefined : parseMuscleGroupSelections(candidate.muscleGroupSelections, muscleGroupIds);
     byId.set(candidate.dayId, {
       dayId: candidate.dayId,
       workoutName: candidate.workoutName.trim(),
-      muscleGroupIds: candidate.isRest ? [] : muscleGroupIds,
+      muscleGroupIds,
       isRest: candidate.isRest,
+      ...(muscleGroupSelections ? { muscleGroupSelections } : {}),
     });
   }
   if (byId.size !== WEEKLY_SCHEDULE.length) return null;
@@ -122,11 +127,11 @@ export function validateCustomSchedule(splitName: string, days: readonly CustomD
  *    projects where the Phase 5 SQL has not run yet, or while Realtime catches up)
  */
 export function resolveActiveSplit(
-  plan: Pick<WorkoutPlan, 'planType' | 'splitName' | 'days' | 'activeTemplateId'> | null,
+  plan: Pick<WorkoutPlan, 'planType' | 'splitName' | 'days' | 'activeWorkoutSplitId'> | null,
   templates: readonly WorkoutSplitTemplate[],
 ): ActiveWorkoutSplit {
   if (!plan || plan.planType === 'PPL') return { kind: 'PPL' };
-  const template = plan.activeTemplateId ? templates.find((candidate) => candidate.id === plan.activeTemplateId) : undefined;
+  const template = plan.activeWorkoutSplitId ? templates.find((candidate) => candidate.id === plan.activeWorkoutSplitId) : undefined;
   if (template) return { kind: 'CUSTOM', template };
   return { kind: 'LEGACY_CUSTOM', splitName: plan.splitName, days: plan.days };
 }
@@ -168,14 +173,27 @@ export function duplicateSplitName(sourceName: string, templates: readonly Pick<
 
 /** Deep copy so edits to a draft never mutate a stored template. */
 export function cloneSchedule(days: readonly CustomDayPlan[]): CustomDayPlan[] {
-  return days.map((day) => ({ ...day, muscleGroupIds: [...day.muscleGroupIds] }));
+  return days.map((day) => ({
+    ...day,
+    muscleGroupIds: [...day.muscleGroupIds],
+    ...(day.muscleGroupSelections
+      ? {
+          muscleGroupSelections: day.muscleGroupSelections.map((selection) => ({
+            ...selection,
+            regions: selection.regions.map((region) => ({ ...region, exerciseIds: [...region.exerciseIds] })),
+          })),
+        }
+      : {}),
+  }));
 }
 
 /** Normalises a draft before saving: rest days carry no muscles and get a default label. */
 export function normalizeSchedule(days: readonly CustomDayPlan[]): CustomDayPlan[] {
-  return days.map((day) => ({
-    ...day,
-    workoutName: day.isRest ? day.workoutName.trim() || 'Rest' : day.workoutName.trim(),
-    muscleGroupIds: day.isRest ? [] : [...new Set(day.muscleGroupIds)],
-  }));
+  return days.map((day) =>
+    normalizeDaySelections({
+      ...day,
+      workoutName: day.isRest ? day.workoutName.trim() || 'Rest' : day.workoutName.trim(),
+      muscleGroupIds: day.isRest ? [] : [...new Set(day.muscleGroupIds)],
+    }),
+  );
 }

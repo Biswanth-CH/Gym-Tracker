@@ -91,6 +91,8 @@ insert into public.profile_workout_split_templates (profile_id, split_name, week
 select p.profile_id, btrim(p.split_name), p.weekly_schedule, p.created_at, p.updated_at
 from public.profile_workout_plans p
 where jsonb_typeof(p.weekly_schedule) = 'object'
+  -- Phase 6 replaces this copy with the shared library; never add per-profile copies after it.
+  and to_regclass('public.workout_split_migration_log') is null
   and jsonb_typeof(p.weekly_schedule -> 'days') = 'array'
   and not exists (
     select 1 from public.profile_workout_split_templates t
@@ -105,6 +107,7 @@ update public.profile_workout_plans p
 set active_split_template_id = t.id
 from public.profile_workout_split_templates t
 where p.active_split_template_id is null
+  and to_regclass('public.workout_split_migration_log') is null
   and t.profile_id = p.profile_id
   and lower(btrim(t.split_name)) = lower(btrim(p.split_name));
 

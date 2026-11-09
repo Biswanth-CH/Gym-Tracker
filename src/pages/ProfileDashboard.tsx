@@ -8,6 +8,8 @@ import { SplitEditor } from '../components/workout/SplitEditor';
 import { WorkoutSplitSelector } from '../components/workout/WorkoutSplitSelector';
 import { getGenderLabel } from '../constants/profileOptions';
 import { getTodayDayId } from '../constants/workoutSchedule';
+import { useToday } from '../hooks/useToday';
+import { parseDateKey } from '../utils/dateUtils';
 import { useAttendanceTracker } from '../hooks/useAttendanceTracker';
 import { useToast } from '../hooks/useToast';
 import { useWorkoutPlan } from '../hooks/useWorkoutPlan';
@@ -27,11 +29,14 @@ type SplitEditorState =
   | { isOpen: true; mode: 'edit'; template: WorkoutSplitTemplate };
 
 export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashboardProps) {
-  const todayId = getTodayDayId();
+  // Local calendar date; useToday re-checks every minute, so the highlight moves at midnight.
+  const todayKey = useToday();
+  const todayId = getTodayDayId(parseDateKey(todayKey));
   const { toast, showToast } = useToast();
   const { attendance, context, choose } = useAttendanceTracker(profile, showToast);
   const {
-    splitTemplates,
+    accountWorkoutSplits,
+    profileCountBySplitId,
     activeWorkoutSplit,
     activeDays,
     activateBuiltInPpl,
@@ -42,7 +47,6 @@ export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashbo
     deleteWorkoutSplit,
   } = useWorkoutPlan(profile.id);
   const [splitEditor, setSplitEditor] = useState<SplitEditorState>({ isOpen: false });
-  const trainingDays = activeDays.filter((day) => day.category !== 'rest').length;
 
   const editingTemplateId = splitEditor.isOpen && splitEditor.mode === 'edit' ? splitEditor.template.id : undefined;
 
@@ -81,10 +85,11 @@ export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashbo
           <h1 className="page-title">Weekly Workout Plan</h1>
           <WorkoutSplitSelector
             activeWorkoutSplit={activeWorkoutSplit}
-            splitTemplates={splitTemplates}
+            splitTemplates={accountWorkoutSplits}
+            profileCountBySplitId={profileCountBySplitId}
             onActivateBuiltInPpl={async () => {
               await activateBuiltInPpl();
-              showToast('Switched to Push Pull Legs');
+              showToast('Switched to PPL');
             }}
             onActivateWorkoutSplit={async (template) => {
               await activateWorkoutSplit(template);
@@ -99,14 +104,10 @@ export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashbo
             }}
             onDeleteWorkoutSplit={async (template) => {
               await deleteWorkoutSplit(template);
-              showToast(`Deleted “${template.splitName}”`, 'info');
+              showToast(`Deleted “${template.splitName}” from your account`, 'info');
             }}
           />
         </div>
-        <p className="dashboard-header__stats">
-          <strong>{trainingDays}</strong> training {trainingDays === 1 ? 'day' : 'days'} · <strong>{7 - trainingDays}</strong> rest{' '}
-          {7 - trainingDays === 1 ? 'day' : 'days'}
-        </p>
       </header>
 
       <ul className="week-grid" aria-label="Days of the week">
@@ -121,7 +122,8 @@ export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashbo
         mode={splitEditor.isOpen ? splitEditor.mode : 'create'}
         splitName={splitEditor.isOpen ? (splitEditor.mode === 'edit' ? splitEditor.template.splitName : splitEditor.splitName) : ''}
         days={splitEditor.isOpen ? (splitEditor.mode === 'edit' ? splitEditor.template.days : splitEditor.days) : EMPTY_DAYS}
-        isNameTaken={(splitName) => isSplitNameTaken(splitName, splitTemplates, editingTemplateId)}
+        isNameTaken={(splitName) => isSplitNameTaken(splitName, accountWorkoutSplits, editingTemplateId)}
+        sharedProfileCount={editingTemplateId ? profileCountBySplitId.get(editingTemplateId) ?? 0 : 0}
         onClose={() => setSplitEditor({ isOpen: false })}
         onSave={saveSplit}
       />

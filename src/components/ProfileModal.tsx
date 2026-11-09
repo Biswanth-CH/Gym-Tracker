@@ -22,6 +22,10 @@ import { validateImageFile } from '../utils/imageUtils';
 import { ImageCropper } from './ImageCropper';
 import { Modal } from './Modal';
 import { ProfileAvatar } from './ProfileAvatar';
+import { ProfileLockSettings } from './profileLock/ProfileLockSettings';
+import { DEFAULT_PROFILE_THEME, PROFILE_THEMES } from '../constants/profileThemes';
+import { setPreviewTheme } from '../services/documentTheme';
+import type { ProfileThemeKey } from '../types/gym';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -69,6 +73,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
   const latestWeightRef = useRef(latestWeightKg);
   latestWeightRef.current = latestWeightKg;
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [themeKey, setThemeKey] = useState<ProfileThemeKey>(DEFAULT_PROFILE_THEME);
   const [view, setView] = useState<ModalView>('form');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -97,6 +102,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
       setHeightText(profile?.heightCm != null ? String(profile.heightCm) : '');
       setWeightText(latestWeightRef.current !== null ? formatNumber(Math.round(latestWeightRef.current * 10) / 10) : '');
       setDetailsError(null);
+      setThemeKey(profile?.themeKey ?? DEFAULT_PROFILE_THEME);
       setView('form');
       setDeleting(false);
       setDeleteError(null);
@@ -110,6 +116,14 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
   }, [isOpen, profile]);
 
   useEffect(() => releaseOriginal, []);
+
+  // Live theme preview while the dialog is open; closing (Save or Cancel) drops the preview,
+  // so the saved theme (or the previous one) is shown again.
+  useEffect(() => {
+    if (!isOpen) return;
+    setPreviewTheme(themeKey);
+    return () => setPreviewTheme(null);
+  }, [isOpen, themeKey]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -162,7 +176,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
     try {
       // Weight first (upsert of today's entry is idempotent, so a retry after a failed profile save is safe).
       if (weightChanged && weightKg !== null) await saveBodyWeight(todayKey, weightKg, 'KG');
-      await onSave({ name, gender, trackingStartDate: trackingStart, photo, ageYears: age.value, heightCm: height.value });
+      await onSave({ name, gender, trackingStartDate: trackingStart, photo, ageYears: age.value, heightCm: height.value, themeKey });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Something went wrong. Please try again.');
     } finally {
@@ -386,6 +400,28 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
           <span className="photo-picker__hint">Attendance and consistency are counted from this date. Set it earlier to log past gym days.</span>
         </div>
 
+        <fieldset className="theme-picker" data-testid="theme-picker">
+          <legend className="field__label">Colour theme</legend>
+          <div className="theme-picker__options" role="radiogroup" aria-label="Colour theme">
+            {PROFILE_THEMES.map((theme) => (
+              <button
+                key={theme.key}
+                type="button"
+                role="radio"
+                aria-checked={themeKey === theme.key}
+                className={`theme-swatch${themeKey === theme.key ? ' is-selected' : ''}`}
+                data-theme={theme.key}
+                onClick={() => setThemeKey(theme.key)}
+                title={`${theme.label} – ${theme.description}`}
+                data-testid={`theme-${theme.key}`}
+              >
+                <span className="theme-swatch__dot" aria-hidden="true" />
+                <span className="theme-swatch__label">{theme.label}</span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
         <div className="profile-details-row">
           <div className="field">
             <label htmlFor={ageId} className="field__label">
@@ -472,27 +508,28 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
           </button>
         </div>
 
-        {isEditing && onDelete && (
-          <section className="danger-zone" aria-labelledby={dangerHeadingId}>
-            <h3 id={dangerHeadingId} className="danger-zone__title">
-              Danger zone
-            </h3>
-            <p className="danger-zone__text">Deleting removes this profile and all of its training data from your account.</p>
-            <button
-              type="button"
-              className="button button--ghost button--danger-text danger-zone__button"
-              onClick={() => {
-                setDeleteError(null);
-                setView('confirm-delete');
-              }}
-              disabled={saving}
-              data-testid="profile-delete"
-            >
-              <Trash2 size={16} aria-hidden="true" /> Delete Profile
-            </button>
-          </section>
-        )}
       </form>
+      )}
+      {isEditing && profile && view === 'form' && !cropSource && <ProfileLockSettings profileId={profile.id} profileName={profile.name} />}
+      {isEditing && onDelete && view === 'form' && !cropSource && (
+        <section className="danger-zone" aria-labelledby={dangerHeadingId}>
+          <h3 id={dangerHeadingId} className="danger-zone__title">
+            Danger zone
+          </h3>
+          <p className="danger-zone__text">Deleting removes this profile and all of its training data from your account.</p>
+          <button
+            type="button"
+            className="button button--ghost button--danger-text danger-zone__button"
+            onClick={() => {
+              setDeleteError(null);
+              setView('confirm-delete');
+            }}
+            disabled={saving}
+            data-testid="profile-delete"
+          >
+            <Trash2 size={16} aria-hidden="true" /> Delete Profile
+          </button>
+        </section>
       )}
     </Modal>
   );

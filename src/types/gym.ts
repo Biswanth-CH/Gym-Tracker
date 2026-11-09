@@ -15,9 +15,14 @@ export interface Profile {
   ageYears: number | null;
   /** Optional height in centimetres (null = not provided). */
   heightCm: number | null;
+  /** Phase 6 colour theme (`gym_profiles.theme_key`). Defaults to lime. */
+  themeKey: ProfileThemeKey;
   createdAt: string;
   updatedAt: string;
 }
+
+/** Stable theme ids stored in `gym_profiles.theme_key`. Colours live in index.css. */
+export type ProfileThemeKey = 'lime' | 'blue' | 'purple' | 'crimson' | 'amber' | 'teal' | 'rose' | 'slate';
 
 /** What happens to the profile photo when the form is saved. */
 export type PhotoChange = { kind: 'keep' } | { kind: 'remove' } | { kind: 'replace'; dataUrl: string };
@@ -30,6 +35,7 @@ export interface ProfileInput {
   photo: PhotoChange;
   ageYears: number | null;
   heightCm: number | null;
+  themeKey: ProfileThemeKey;
 }
 
 /**
@@ -80,23 +86,55 @@ export interface WorkoutDay {
   muscleGroupIds: MuscleGroupId[];
   /** Custom split label. When omitted, the category label is shown. */
   title?: string;
+  /** Region / exercise narrowing from the active custom split. Missing = everything. */
+  muscleGroupSelections?: MuscleGroupSelection[];
 }
 
 export type WorkoutPlanType = 'PPL' | 'CUSTOM';
 
-/** One day inside a profile's saved custom split. */
-export interface CustomDayPlan {
-  dayId: DayId;
-  workoutName: string;
-  muscleGroupIds: MuscleGroupId[];
-  isRest: boolean;
+/**
+ * Phase 6 selection modes. `ALL` = every current child (regions of a group, or
+ * exercises mapped to a region). `CUSTOM` = only the stored ids; an empty list means NONE.
+ * A missing selection always means ALL (legacy schedules keep working unchanged).
+ */
+export type SelectionMode = 'ALL' | 'CUSTOM';
+
+/** Level 3: which exercise variations of one target region are in the workout. */
+export interface RegionSelection {
+  regionId: string;
+  exerciseSelectionMode: SelectionMode;
+  /** Used only when `exerciseSelectionMode` is CUSTOM. Stable library ids. */
+  exerciseIds: string[];
 }
 
 /**
- * Active-plan row for one profile (`profile_workout_plans`).
- * `splitName` / `days` are the legacy single custom split (kept in sync with the
- * active template). `activeTemplateId` names the active saved split when the type
- * is CUSTOM; with PPL it remembers the last custom split.
+ * Level 2: which target regions of one muscle group are in the workout.
+ * CUSTOM → `regions` lists exactly the selected regions (each with its exercise selection).
+ * ALL    → every region is selected; `regions` only holds regions whose exercises
+ *          were narrowed (CUSTOM exercise selections). Regions not listed use ALL.
+ */
+export interface MuscleGroupSelection {
+  muscleGroupId: MuscleGroupId;
+  regionSelectionMode: SelectionMode;
+  regions: RegionSelection[];
+}
+
+/** One day inside a saved custom split. */
+export interface CustomDayPlan {
+  dayId: DayId;
+  workoutName: string;
+  /** Level 1: selected main muscle groups (kept for older app builds too). */
+  muscleGroupIds: MuscleGroupId[];
+  isRest: boolean;
+  /** Levels 2–3 (Phase 6). Missing, or no entry for a group, means ALL regions + ALL exercises. */
+  muscleGroupSelections?: MuscleGroupSelection[];
+}
+
+/**
+ * Active-plan row for one profile (`profile_workout_plans`). The ACTIVE choice is per profile.
+ * `splitName` / `days` mirror the active custom split for older builds (legacy columns).
+ * `activeWorkoutSplitId` (active_account_split_id) names the active shared split when the
+ * type is CUSTOM; with PPL it remembers the last custom split.
  */
 export interface WorkoutPlan {
   id: string;
@@ -104,14 +142,19 @@ export interface WorkoutPlan {
   planType: WorkoutPlanType;
   splitName: string;
   days: CustomDayPlan[];
-  activeTemplateId: string | null;
+  activeWorkoutSplitId: string | null;
   updatedAt: string;
 }
 
-/** One saved custom split (`profile_workout_split_templates`). Many per profile. */
+/**
+ * One saved custom split in the ACCOUNT-wide library (`account_workout_split_templates`).
+ * Every profile of the signed-in account can activate it; editing it affects all of them.
+ */
 export interface WorkoutSplitTemplate {
   id: string;
-  profileId: string;
+  ownerId: string;
+  /** Profile that created it (or that it was migrated from). Null if that profile was deleted. */
+  sourceProfileId: string | null;
   splitName: string;
   days: CustomDayPlan[];
   createdAt: string;
@@ -377,6 +420,11 @@ export type Route =
   | { name: 'day'; profileId: string; dayId: DayId }
   | { name: 'consistency'; profileId: string }
   | { name: 'overview'; profileId: string }
+  /** Full exercise library: browsable regardless of the active split's selections. */
+  | { name: 'library'; profileId: string }
+  | { name: 'library-muscle'; profileId: string; muscleId: string }
+  | { name: 'library-region'; profileId: string; muscleId: string; regionId: string; category: ExerciseCategory }
+  | { name: 'library-exercise'; profileId: string; muscleId: string; regionId: string; exerciseId: string }
   | { name: 'muscle'; profileId: string; dayId: DayId; muscleId: string }
   | {
       name: 'region';

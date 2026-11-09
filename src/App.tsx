@@ -22,6 +22,11 @@ import { MuscleGroupPage } from './pages/MuscleGroupPage';
 import { MuscleRegionPage } from './pages/MuscleRegionPage';
 import { ProfileDashboard } from './pages/ProfileDashboard';
 import { ProfileOverviewPage } from './pages/ProfileOverviewPage';
+import { ProfilePinGatePage } from './pages/ProfilePinGatePage';
+import { ExerciseLibraryPage } from './pages/ExerciseLibraryPage';
+import { useProfileLocks } from './hooks/useProfileLocks';
+import { allowedExerciseIdsByRegion } from './utils/workoutSelection';
+import { setBaseTheme } from './services/documentTheme';
 import { ProfilesPage } from './pages/ProfilesPage';
 import { SetupRequiredPage } from './pages/SetupRequiredPage';
 import { rememberActiveProfile, rememberedActiveProfileId } from './services/activeProfileSession';
@@ -155,6 +160,13 @@ function Routes({ onImport }: { onImport?: () => void }) {
   }, [route]);
 
   const activeProfile = route.name === 'profiles' ? null : profiles.find((candidate) => candidate.id === route.profileId) ?? null;
+  const activeThemeKey = activeProfile?.themeKey ?? null;
+
+  // The open profile's theme colours the whole app; the Profiles page stays neutral.
+  useEffect(() => {
+    setBaseTheme(activeThemeKey);
+  }, [activeThemeKey]);
+  useEffect(() => () => setBaseTheme(null), []);
 
   const notFound: NotFoundRenderer = (title, message, actionLabel, onAction) => (
     <div className="page page--center">
@@ -176,7 +188,6 @@ function Routes({ onImport }: { onImport?: () => void }) {
     page = (
       <ProfilesPage
         profiles={profiles}
-        accountBar={<AccountBar onImport={onImport} />}
         onOpenProfile={(profile) => {
           rememberActiveProfile(profile.id);
           navigate({ name: 'dashboard', profileId: profile.id });
@@ -210,6 +221,7 @@ function Routes({ onImport }: { onImport?: () => void }) {
       <AppHeader
         activeProfile={activeProfile}
         isOverviewOpen={route.name === 'overview'}
+        accountControls={<AccountBar onImport={onImport} />}
         onOpenProfiles={goHome}
         onOpenProfileOverview={(profile) => {
           if (route.name !== 'overview') navigate({ name: 'overview', profileId: profile.id });
@@ -240,17 +252,17 @@ function ProfileScreens({
   onDeleteProfile: () => Promise<void>;
 }) {
   const { activeDays } = useWorkoutPlan(profile.id);
+  const { isProfileLockedNow } = useProfileLocks();
   const profileId = profile.id;
   const openDashboard = () => navigate({ name: 'dashboard', profileId });
+  const openOverview = () => navigate({ name: 'overview', profileId });
+  const openLibrary = () => navigate({ name: 'library', profileId });
+
+  // A PIN-locked profile shows nothing but the PIN screen until it is unlocked in this session.
+  if (isProfileLockedNow(profileId)) return <ProfilePinGatePage key={profileId} profile={profile} onCancel={goHome} />;
 
   if (route.name === 'dashboard') {
-    return (
-      <ProfileDashboard
-        profile={profile}
-        onBack={goHome}
-        onSelectDay={(day) => navigate({ name: 'day', profileId, dayId: day.id })}
-      />
-    );
+    return <ProfileDashboard profile={profile} onBack={goHome} onSelectDay={(day) => navigate({ name: 'day', profileId, dayId: day.id })} />;
   }
 
   if (route.name === 'overview') {
@@ -261,6 +273,7 @@ function ProfileScreens({
         onBack={openDashboard}
         onOpenWeeklyPlan={openDashboard}
         onOpenConsistency={() => navigate({ name: 'consistency', profileId })}
+        onOpenLibrary={openLibrary}
         onSwitchProfile={goHome}
         onUpdateProfile={onUpdateProfile}
         onDeleteProfile={onDeleteProfile}
@@ -269,9 +282,76 @@ function ProfileScreens({
   }
 
   if (route.name === 'consistency') {
-    return <ConsistencyTrackerPage key={profileId} profile={profile} onBack={() => navigate({ name: 'overview', profileId })} />;
+    return <ConsistencyTrackerPage key={profileId} profile={profile} onBack={openOverview} />;
   }
 
+  /* ---------- Full exercise library (not limited by the active split) ---------- */
+  if (route.name === 'library') {
+    return (
+      <ExerciseLibraryPage
+        backLabel="Profile overview"
+        onBack={openOverview}
+        onSelectMuscleGroup={(group) => navigate({ name: 'library-muscle', profileId, muscleId: group.id })}
+      />
+    );
+  }
+  if (route.name === 'library-muscle' || route.name === 'library-region' || route.name === 'library-exercise') {
+    const libraryGroup = isMuscleGroupId(route.muscleId) ? MUSCLE_GROUPS_BY_ID[route.muscleId] : undefined;
+    if (!libraryGroup) return notFound('Muscle group not found', 'That muscle group doesn’t exist.', 'Exercise library', openLibrary);
+    const libraryMuscleId = libraryGroup.id;
+    const openLibraryGroup = () => navigate({ name: 'library-muscle', profileId, muscleId: libraryMuscleId });
+    if (route.name === 'library-muscle') {
+      return (
+        <MuscleGroupPage
+          backLabel="Exercise library"
+          group={libraryGroup}
+          regions={libraryGroup.regions}
+          onBack={openLibrary}
+          onSelectRegion={(region) => navigate({ name: 'library-region', profileId, muscleId: libraryMuscleId, regionId: region.id, category: 'MACHINE' })}
+        />
+      );
+    }
+    const libraryRegion = getMuscleRegion(route.regionId);
+    if (!libraryRegion || libraryRegion.muscleGroupId !== libraryMuscleId) {
+      return notFound('Region not found', `That region isn’t part of ${libraryGroup.name}.`, `Back to ${libraryGroup.name}`, openLibraryGroup);
+    }
+    const libraryRegionId = libraryRegion.id;
+    const openLibraryRegion = (category: 'MACHINE' | 'ALTERNATIVE' = 'MACHINE') =>
+      navigate({ name: 'library-region', profileId, muscleId: libraryMuscleId, regionId: libraryRegionId, category });
+    if (route.name === 'library-region') {
+      return (
+        <MuscleRegionPage
+          profile={profile}
+          group={libraryGroup}
+          region={libraryRegion}
+          category={route.category}
+          onBack={openLibraryGroup}
+          onChangeCategory={(category) =>
+            navigate({ name: 'library-region', profileId, muscleId: libraryMuscleId, regionId: libraryRegionId, category }, { replace: true })
+          }
+          onSelectExercise={(exercise) =>
+            navigate({ name: 'library-exercise', profileId, muscleId: libraryMuscleId, regionId: libraryRegionId, exerciseId: exercise.id })
+          }
+        />
+      );
+    }
+    const libraryExercise = EXERCISES_BY_ID.get(route.exerciseId);
+    if (!libraryExercise || !exerciseTargetsRegion(libraryExercise, libraryMuscleId, libraryRegionId)) {
+      return notFound('Exercise not found', `That exercise isn’t listed under ${libraryRegion.name}.`, `Back to ${libraryRegion.name}`, () => openLibraryRegion());
+    }
+    return (
+      <ExerciseDetailsPage
+        key={`${profileId}:${libraryExercise.id}`}
+        profile={profile}
+        group={libraryGroup}
+        region={libraryRegion}
+        exercise={libraryExercise}
+        onBack={() => openLibraryRegion(libraryExercise.category)}
+      />
+    );
+  }
+
+  /* ---------- Workout day: limited to the active split's region / exercise selections ---------- */
   const day = activeDays.find((candidate) => candidate.id === route.dayId);
   if (!day) return notFound('Day not found', 'That day isn’t part of this workout plan.', 'Back to weekly plan', openDashboard);
   const dayId = day.id;
@@ -285,6 +365,7 @@ function ProfileScreens({
         day={day}
         onBack={openDashboard}
         onSelectMuscleGroup={(group) => navigate({ name: 'muscle', profileId, dayId, muscleId: group.id })}
+        onOpenLibrary={openLibrary}
       />
     );
   }
@@ -295,13 +376,15 @@ function ProfileScreens({
   }
   const muscleId = group.id;
   const openGroup = () => navigate({ name: 'muscle', profileId, dayId, muscleId });
+  const allowedByRegion = allowedExerciseIdsByRegion(day, muscleId);
 
   if (route.name === 'muscle') {
     return (
       <MuscleGroupPage
-        profile={profile}
-        day={day}
+        backLabel={day.dayName}
         group={group}
+        regions={group.regions.filter((region) => allowedByRegion.has(region.id))}
+        allowedExerciseIdsByRegion={allowedByRegion}
         onBack={openDay}
         onSelectRegion={(region) => navigate({ name: 'region', profileId, dayId, muscleId, regionId: region.id, category: 'MACHINE' })}
       />
@@ -309,8 +392,9 @@ function ProfileScreens({
   }
 
   const region = getMuscleRegion(route.regionId);
-  if (!region || region.muscleGroupId !== group.id) {
-    return notFound('Region not found', `That region isn’t part of ${group.name}.`, `Back to ${group.name}`, openGroup);
+  const allowedExerciseIds = region ? allowedByRegion.get(region.id) : undefined;
+  if (!region || region.muscleGroupId !== group.id || !allowedExerciseIds) {
+    return notFound('Region not found', `That region isn’t selected for ${group.name} on ${day.dayName}.`, `Back to ${group.name}`, openGroup);
   }
   const regionId = region.id;
 
@@ -321,6 +405,7 @@ function ProfileScreens({
         group={group}
         region={region}
         category={route.category}
+        allowedExerciseIds={allowedExerciseIds}
         onBack={openGroup}
         onChangeCategory={(category) => navigate({ name: 'region', profileId, dayId, muscleId, regionId, category }, { replace: true })}
         onSelectExercise={(exercise) => navigate({ name: 'exercise', profileId, dayId, muscleId, regionId, exerciseId: exercise.id })}
@@ -330,8 +415,8 @@ function ProfileScreens({
 
   const exercise = EXERCISES_BY_ID.get(route.exerciseId);
   const openRegion = (category: 'MACHINE' | 'ALTERNATIVE' = 'MACHINE') => navigate({ name: 'region', profileId, dayId, muscleId, regionId, category });
-  if (!exercise || !exerciseTargetsRegion(exercise, muscleId, regionId)) {
-    return notFound('Exercise not found', `That exercise isn’t listed under ${region.name}.`, `Back to ${region.name}`, () => openRegion());
+  if (!exercise || !exerciseTargetsRegion(exercise, muscleId, regionId) || !allowedExerciseIds.has(exercise.id)) {
+    return notFound('Exercise not found', `That exercise isn’t selected under ${region.name} for this day.`, `Back to ${region.name}`, () => openRegion());
   }
 
   return (

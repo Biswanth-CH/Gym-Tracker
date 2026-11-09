@@ -6,8 +6,8 @@ import { activeSplitDays, activeSplitName, resolveActiveSplit } from '../utils/w
 import { useCloudSlice } from './useCloud';
 
 /**
- * The active weekly plan and every saved custom split of one profile.
- * Missing cloud rows mean the built-in PPL split. Each profile has its own collection.
+ * One profile's ACTIVE weekly plan plus the account-wide shared split library.
+ * Missing plan rows mean the built-in PPL split. Activating a split only affects `profileId`.
  */
 export function useWorkoutPlan(profileId: string) {
   const planRows = useCloudSlice((snapshot) => snapshot.workoutPlans);
@@ -18,43 +18,54 @@ export function useWorkoutPlan(profileId: string) {
     return row ? toWorkoutPlan(row) : null;
   }, [planRows, profileId]);
 
-  const splitTemplates: WorkoutSplitTemplate[] = useMemo(
+  /** The whole account's library (RLS already limits rows to this account). */
+  const accountWorkoutSplits: WorkoutSplitTemplate[] = useMemo(
     () =>
       templateRows
-        .filter((row) => row.profile_id === profileId)
         .map(toSplitTemplate)
         .filter((template): template is WorkoutSplitTemplate => template !== null)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.splitName.localeCompare(b.splitName)),
-    [templateRows, profileId],
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.splitName.localeCompare(b.splitName) || a.id.localeCompare(b.id)),
+    [templateRows],
   );
 
-  const activeWorkoutSplit: ActiveWorkoutSplit = useMemo(() => resolveActiveSplit(plan, splitTemplates), [plan, splitTemplates]);
+  /** How many profiles currently use each shared split. */
+  const profileCountBySplitId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of planRows) {
+      const rowPlan = toWorkoutPlan(row);
+      if (rowPlan?.planType === 'CUSTOM' && rowPlan.activeWorkoutSplitId) {
+        counts.set(rowPlan.activeWorkoutSplitId, (counts.get(rowPlan.activeWorkoutSplitId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [planRows]);
+
+  const activeWorkoutSplit: ActiveWorkoutSplit = useMemo(() => resolveActiveSplit(plan, accountWorkoutSplits), [plan, accountWorkoutSplits]);
   const activeDays: readonly WorkoutDay[] = useMemo(() => activeSplitDays(activeWorkoutSplit), [activeWorkoutSplit]);
   const activeWorkoutSplitName = activeSplitName(activeWorkoutSplit);
 
   const activateBuiltInPpl = useCallback(() => workoutPlanService.activatePpl(profileId, plan), [profileId, plan]);
-  const activateWorkoutSplit = useCallback((template: WorkoutSplitTemplate) => workoutPlanService.activateTemplate(template), []);
-
+  const activateWorkoutSplit = useCallback((template: WorkoutSplitTemplate) => workoutPlanService.activateWorkoutSplit(profileId, template), [profileId]);
   const createWorkoutSplit = useCallback(
-    async (splitName: string, days: readonly CustomDayPlan[]) =>
-      workoutSplitTemplateService.create(profileId, splitName, days, splitTemplates),
-    [profileId, splitTemplates],
+    (splitName: string, days: readonly CustomDayPlan[]) => workoutSplitTemplateService.create(profileId, splitName, days, accountWorkoutSplits),
+    [profileId, accountWorkoutSplits],
   );
   const updateWorkoutSplit = useCallback(
     (template: WorkoutSplitTemplate, splitName: string, days: readonly CustomDayPlan[]) =>
-      workoutSplitTemplateService.update(template, splitName, days, splitTemplates, plan),
-    [splitTemplates, plan],
+      workoutSplitTemplateService.update(template, splitName, days, accountWorkoutSplits),
+    [accountWorkoutSplits],
   );
   const duplicateWorkoutSplit = useCallback(
     (sourceName: string, sourceDays: readonly CustomDayPlan[]) =>
-      workoutSplitTemplateService.duplicate(profileId, sourceName, sourceDays, splitTemplates),
-    [profileId, splitTemplates],
+      workoutSplitTemplateService.duplicate(profileId, sourceName, sourceDays, accountWorkoutSplits),
+    [profileId, accountWorkoutSplits],
   );
-  const deleteWorkoutSplit = useCallback((template: WorkoutSplitTemplate) => workoutSplitTemplateService.remove(template, plan), [plan]);
+  const deleteWorkoutSplit = useCallback((template: WorkoutSplitTemplate) => workoutSplitTemplateService.remove(template), []);
 
   return {
     plan,
-    splitTemplates,
+    accountWorkoutSplits,
+    profileCountBySplitId,
     activeWorkoutSplit,
     activeWorkoutSplitName,
     activeDays,

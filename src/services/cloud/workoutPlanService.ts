@@ -11,21 +11,23 @@ import {
 } from '../../utils/workoutPlan';
 import { CloudError, ensureOk, isMissingColumnError, toCloudError } from './cloudErrors';
 import { upsertRow } from './db';
-import { toSplitTemplate, type SplitTemplateRow, type WorkoutPlanRow } from './rows';
+import { toSplitTemplate, toWorkoutPlan, type SplitTemplateRow, type WorkoutPlanRow } from './rows';
 
 /**
- * Workout plans (Phase 5)
+ * Workout plans (Phase 6)
  *
- *  - `profile_workout_split_templates`: any number of saved custom splits per profile.
- *  - `profile_workout_plans`: one row per profile with the ACTIVE choice:
- *      plan_type 'PPL'    → the built-in split (never stored as a template, never deleted)
- *      plan_type 'CUSTOM' → active_split_template_id
- *    Its legacy `split_name` / `weekly_schedule` columns mirror the active custom split so
- *    older app builds keep showing the right days. Switching to PPL never touches templates.
+ *  - `account_workout_split_templates`: ONE shared library of custom splits per account.
+ *    Every profile of the account sees and can activate them; RLS: owner_id = auth.uid().
+ *  - `profile_workout_plans`: one row per profile with that profile's ACTIVE choice:
+ *      plan_type 'PPL'    → built-in split (never stored as a template, never deleted)
+ *      plan_type 'CUSTOM' → active_account_split_id (a trigger checks same-account ownership)
+ *    Legacy `split_name` / `weekly_schedule` mirror the active custom split for older builds.
+ *  - Editing a shared split changes it for every profile using it. Duplicate to customise
+ *    a copy. Switching splits never modifies saved splits.
  */
 
 const SPLIT_MIGRATION_HINT =
-  'Saved workout splits need the Phase 5 database update. Run supabase/migrations/20261108_phase5_profile_details_and_workout_splits.sql in Supabase, then try again.';
+  'Shared workout splits need the Phase 6 database update. Run supabase/migrations/20261109_phase6_shared_splits_themes_pins.sql in Supabase, then try again.';
 
 function isMissingTableError(error: unknown): boolean {
   const like = (typeof error === 'object' && error !== null ? error : {}) as { code?: unknown; message?: unknown };
@@ -36,23 +38,21 @@ function isMissingTableError(error: unknown): boolean {
 
 function splitWriteError(error: unknown, fallback: string): CloudError {
   if (isMissingTableError(error) || isMissingColumnError(error)) return new CloudError(SPLIT_MIGRATION_HINT, 'validation');
-  const cloudError = toCloudError(error, fallback);
-  if (cloudError.kind === 'conflict') return new CloudError('You already have a split with this name. Choose another name.', 'conflict');
-  return cloudError;
+  return toCloudError(error, fallback);
 }
+
+const DUPLICATE_NAME_MESSAGE = 'Your account already has a split with this name. Choose another name.';
 
 function validateTemplate(
   splitName: string,
   days: readonly CustomDayPlan[],
-  existing: readonly WorkoutSplitTemplate[],
+  accountSplits: readonly WorkoutSplitTemplate[],
   excludeId?: string,
 ): CustomDayPlan[] {
   const schedule = normalizeSchedule(days);
   const problem = validateCustomSchedule(splitName, schedule);
   if (problem) throw new CloudError(problem, 'validation');
-  if (isSplitNameTaken(splitName, existing, excludeId)) {
-    throw new CloudError('You already have a split with this name. Choose another name.', 'conflict');
-  }
+  if (isSplitNameTaken(splitName, accountSplits, excludeId)) throw new CloudError(DUPLICATE_NAME_MESSAGE, 'conflict');
   return schedule;
 }
 
@@ -65,8 +65,16 @@ async function writePlanRow(row: Record<string, unknown>, fallback: string): Pro
   }
 }
 
+/** Plans (of any profile in this account) whose active split is this shared template. */
+function plansUsingSplit(templateId: string): WorkoutPlan[] {
+  return cloudStore
+    .getSnapshot()
+    .workoutPlans.map(toWorkoutPlan)
+    .filter((plan): plan is WorkoutPlan => plan !== null && plan.planType === 'CUSTOM' && plan.activeWorkoutSplitId === templateId);
+}
+
 export const workoutPlanService = {
-  /** Activates the built-in PPL split. Saved splits and the remembered custom split stay as they are. */
+  /** Activates the built-in PPL split for ONE profile. The remembered custom split is kept. */
   async activatePpl(profileId: string, currentPlan: WorkoutPlan | null): Promise<void> {
     await writePlanRow(
       {
@@ -79,15 +87,15 @@ export const workoutPlanService = {
     );
   },
 
-  /** Activates a saved split and mirrors it into the legacy columns. */
-  async activateTemplate(template: WorkoutSplitTemplate): Promise<void> {
+  /** Activates a shared split for ONE profile (other profiles keep their own choice). */
+  async activateWorkoutSplit(profileId: string, template: WorkoutSplitTemplate): Promise<void> {
     await writePlanRow(
       {
-        profile_id: template.profileId,
+        profile_id: profileId,
         plan_type: 'CUSTOM',
         split_name: template.splitName,
         weekly_schedule: { days: template.days },
-        active_split_template_id: template.id,
+        active_account_split_id: template.id,
       },
       'Could not activate the workout split.',
     );
@@ -95,38 +103,41 @@ export const workoutPlanService = {
 };
 
 export const workoutSplitTemplateService = {
+  /** Creates a shared split for the whole account; `creatorProfileId` is kept as provenance. */
   async create(
-    profileId: string,
+    creatorProfileId: string,
     splitName: string,
     days: readonly CustomDayPlan[],
-    existing: readonly WorkoutSplitTemplate[],
+    accountSplits: readonly WorkoutSplitTemplate[],
   ): Promise<WorkoutSplitTemplate> {
-    const schedule = validateTemplate(splitName, days, existing);
+    const schedule = validateTemplate(splitName, days, accountSplits);
     const fallback = 'Could not create the workout split.';
     const result = await getSupabase()
-      .from('profile_workout_split_templates')
-      .insert({ profile_id: profileId, split_name: splitName.trim(), weekly_schedule: { days: schedule } })
+      .from('account_workout_split_templates')
+      .insert({ source_profile_id: creatorProfileId, split_name: splitName.trim(), weekly_schedule: { days: schedule } })
       .select('*');
     if (result.error) throw splitWriteError(result.error, fallback);
     const row = (result.data as SplitTemplateRow[])[0];
     const template = row ? toSplitTemplate(row) : null;
     if (!row || !template) throw new CloudError(fallback, 'unknown');
-    cloudStore.applyUpserts('profile_workout_split_templates', [row]);
+    cloudStore.applyUpserts('account_workout_split_templates', [row]);
     return template;
   },
 
-  /** Renames / edits a saved split. When it is the active split, the plan's mirror is refreshed too. */
+  /**
+   * Renames / edits a shared split. Every profile using it sees the change; their
+   * legacy mirror columns are refreshed too so older app builds stay consistent.
+   */
   async update(
     template: WorkoutSplitTemplate,
     splitName: string,
     days: readonly CustomDayPlan[],
-    existing: readonly WorkoutSplitTemplate[],
-    currentPlan: WorkoutPlan | null,
+    accountSplits: readonly WorkoutSplitTemplate[],
   ): Promise<WorkoutSplitTemplate> {
-    const schedule = validateTemplate(splitName, days, existing, template.id);
+    const schedule = validateTemplate(splitName, days, accountSplits, template.id);
     const fallback = 'Could not save the workout split.';
     const result = await getSupabase()
-      .from('profile_workout_split_templates')
+      .from('account_workout_split_templates')
       .update({ split_name: splitName.trim(), weekly_schedule: { days: schedule } })
       .eq('id', template.id)
       .select('*');
@@ -134,37 +145,39 @@ export const workoutSplitTemplateService = {
     const row = (result.data as SplitTemplateRow[])[0];
     const updated = row ? toSplitTemplate(row) : null;
     if (!row || !updated) throw new CloudError('This split no longer exists.', 'unknown');
-    cloudStore.applyUpserts('profile_workout_split_templates', [row]);
-    if (currentPlan?.planType === 'CUSTOM' && currentPlan.activeTemplateId === template.id) {
-      await workoutPlanService.activateTemplate(updated);
+    cloudStore.applyUpserts('account_workout_split_templates', [row]);
+    for (const plan of plansUsingSplit(template.id)) {
+      await workoutPlanService.activateWorkoutSplit(plan.profileId, updated);
     }
     return updated;
   },
 
-  /** Copies a saved split (or the built-in PPL days) under a unique "(copy)" name. Not activated. */
-  async duplicate(
-    profileId: string,
+  /** Independent copy under a unique "(copy)" name. Not activated. */
+  duplicate(
+    creatorProfileId: string,
     sourceName: string,
     sourceDays: readonly CustomDayPlan[],
-    existing: readonly WorkoutSplitTemplate[],
+    accountSplits: readonly WorkoutSplitTemplate[],
   ): Promise<WorkoutSplitTemplate> {
-    return workoutSplitTemplateService.create(profileId, duplicateSplitName(sourceName, existing), sourceDays, existing);
+    return workoutSplitTemplateService.create(creatorProfileId, duplicateSplitName(sourceName, accountSplits), sourceDays, accountSplits);
+  },
+
+  /** Number of profiles whose ACTIVE split is this one (for the delete warning). */
+  countProfilesUsing(templateId: string): number {
+    return plansUsingSplit(templateId).length;
   },
 
   /**
-   * Deletes one saved split. If it is active, the profile switches to PPL first so the
-   * weekly plan never points at a missing split. Other splits are untouched.
+   * Deletes a shared split. Every profile that has it active switches to PPL first, so no
+   * weekly plan points at a missing split. Other splits are untouched.
    */
-  async remove(template: WorkoutSplitTemplate, currentPlan: WorkoutPlan | null): Promise<void> {
-    if (currentPlan?.planType === 'CUSTOM' && currentPlan.activeTemplateId === template.id) {
-      await workoutPlanService.activatePpl(template.profileId, currentPlan);
+  async remove(template: WorkoutSplitTemplate): Promise<void> {
+    for (const plan of plansUsingSplit(template.id)) {
+      await workoutPlanService.activatePpl(plan.profileId, plan);
     }
-    ensureOk(
-      await getSupabase().from('profile_workout_split_templates').delete().eq('id', template.id),
-      'Could not delete the workout split.',
-    );
-    cloudStore.applyDeletes('profile_workout_split_templates', (row) => row.id === template.id);
-    // The database clears active_split_template_id (ON DELETE SET NULL); re-read the plan row.
+    ensureOk(await getSupabase().from('account_workout_split_templates').delete().eq('id', template.id), 'Could not delete the workout split.');
+    cloudStore.applyDeletes('account_workout_split_templates', (row) => row.id === template.id);
+    // The database clears active_account_split_id where it was remembered (ON DELETE SET NULL).
     cloudStore.refreshTable('profile_workout_plans');
   },
 };

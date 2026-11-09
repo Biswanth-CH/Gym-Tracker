@@ -24,9 +24,10 @@ const upperLowerDays: CustomDayPlan[] = defaultCustomSchedule().map((day) => {
   return day;
 });
 
-const template = (id: string, splitName: string, days: CustomDayPlan[] = upperLowerDays, profileId = 'profile-a'): WorkoutSplitTemplate => ({
+const template = (id: string, splitName: string, days: CustomDayPlan[] = upperLowerDays, sourceProfileId: string | null = 'profile-a'): WorkoutSplitTemplate => ({
   id,
-  profileId,
+  ownerId: 'account-1',
+  sourceProfileId,
   splitName,
   days: cloneSchedule(days),
   createdAt: '2026-11-08T00:00:00.000Z',
@@ -39,7 +40,7 @@ const plan = (overrides: Partial<WorkoutPlan>): WorkoutPlan => ({
   planType: 'PPL',
   splitName: 'My Split',
   days: defaultCustomSchedule(),
-  activeTemplateId: null,
+  activeWorkoutSplitId: null,
   updatedAt: '2026-11-08T00:00:00.000Z',
   ...overrides,
 });
@@ -54,13 +55,13 @@ describe('multiple workout splits', () => {
 
   it('uses built-in PPL when there is no plan row or PPL is active', () => {
     expect(resolveActiveSplit(null, [upperLower]).kind).toBe('PPL');
-    expect(resolveActiveSplit(plan({ planType: 'PPL', activeTemplateId: 't-upper' }), [upperLower]).kind).toBe('PPL');
+    expect(resolveActiveSplit(plan({ planType: 'PPL', activeWorkoutSplitId: 't-upper' }), [upperLower]).kind).toBe('PPL');
     expect(activeSplitDays({ kind: 'PPL' })).toBe(WEEKLY_SCHEDULE);
     expect(activeSplitName({ kind: 'PPL' })).toBe(BUILT_IN_PPL_NAME);
   });
 
   it('restores the exact schedule of the active custom template', () => {
-    const active = resolveActiveSplit(plan({ planType: 'CUSTOM', activeTemplateId: 't-bro' }), [upperLower, broSplit]);
+    const active = resolveActiveSplit(plan({ planType: 'CUSTOM', activeWorkoutSplitId: 't-bro' }), [upperLower, broSplit]);
     expect(active.kind).toBe('CUSTOM');
     const days = activeSplitDays(active);
     expect(days[0].title).toBe('Chest Day');
@@ -71,33 +72,34 @@ describe('multiple workout splits', () => {
   it('switching PPL → custom → PPL never changes the saved templates', () => {
     const templates = [upperLower, broSplit];
     const snapshot = JSON.stringify(templates);
-    resolveActiveSplit(plan({ planType: 'PPL', activeTemplateId: 't-upper' }), templates);
-    const custom = resolveActiveSplit(plan({ planType: 'CUSTOM', activeTemplateId: 't-upper' }), templates);
+    resolveActiveSplit(plan({ planType: 'PPL', activeWorkoutSplitId: 't-upper' }), templates);
+    const custom = resolveActiveSplit(plan({ planType: 'CUSTOM', activeWorkoutSplitId: 't-upper' }), templates);
     expect(activeSplitDays(custom)[1].muscleGroupIds).toEqual(['legs', 'abs']);
     expect(JSON.stringify(templates)).toBe(snapshot);
   });
 
   it('falls back to the legacy single custom schedule when the template is missing', () => {
-    const legacy = plan({ planType: 'CUSTOM', splitName: 'Old Split', days: upperLowerDays, activeTemplateId: null });
+    const legacy = plan({ planType: 'CUSTOM', splitName: 'Old Split', days: upperLowerDays, activeWorkoutSplitId: null });
     const active = resolveActiveSplit(legacy, []);
     expect(active).toMatchObject({ kind: 'LEGACY_CUSTOM', splitName: 'Old Split' });
     expect(activeSplitDays(active)[0].title).toBe('Upper Body');
     // A reference to a template that was deleted (or not loaded yet) also falls back safely.
-    expect(resolveActiveSplit({ ...legacy, activeTemplateId: 'gone' }, [upperLower]).kind).toBe('LEGACY_CUSTOM');
+    expect(resolveActiveSplit({ ...legacy, activeWorkoutSplitId: 'gone' }, [upperLower]).kind).toBe('LEGACY_CUSTOM');
   });
 
-  it('keeps profiles isolated: another profile’s template id is never resolved', () => {
-    const otherProfileTemplate = template('t-other', 'Other', upperLowerDays, 'profile-b');
-    // The hook filters templates by profile before resolving, so only profile-a templates are passed.
-    const profileATemplates = [upperLower, otherProfileTemplate].filter((candidate) => candidate.profileId === 'profile-a');
-    const active = resolveActiveSplit(plan({ planType: 'CUSTOM', activeTemplateId: 't-other' }), profileATemplates);
-    expect(active.kind).toBe('LEGACY_CUSTOM');
+  it('shares the account library: a split created by profile B is usable by profile A, each keeps its own choice', () => {
+    const createdByB = template('t-b', 'Leg Split', upperLowerDays, 'profile-b');
+    const library = [upperLower, createdByB];
+    const profileA = resolveActiveSplit(plan({ profileId: 'profile-a', planType: 'CUSTOM', activeWorkoutSplitId: 't-b' }), library);
+    const profileB = resolveActiveSplit(plan({ profileId: 'profile-b', planType: 'PPL', activeWorkoutSplitId: 't-b' }), library);
+    expect(profileA).toMatchObject({ kind: 'CUSTOM', template: { id: 't-b' } });
+    expect(profileB.kind).toBe('PPL');
   });
 
   it('checks split names case-insensitively and reserves the built-in name', () => {
     expect(isSplitNameTaken('  upper / LOWER ', [upperLower])).toBe(true);
     expect(isSplitNameTaken('Upper / Lower', [upperLower], 't-upper')).toBe(false);
-    expect(isSplitNameTaken('push pull legs', [])).toBe(true);
+    expect(isSplitNameTaken('ppl', [])).toBe(true);
     expect(isSplitNameTaken('Personal Workout Plan', [upperLower, broSplit])).toBe(false);
   });
 
@@ -109,7 +111,7 @@ describe('multiple workout splits', () => {
     const copyName = duplicateSplitName(long, []);
     expect(copyName.length).toBeLessThanOrEqual(SPLIT_NAME_MAX_LENGTH);
     expect(copyName.endsWith('(copy)')).toBe(true);
-    expect(duplicateSplitName(BUILT_IN_PPL_NAME, [])).toBe('Push Pull Legs (copy)');
+    expect(duplicateSplitName(BUILT_IN_PPL_NAME, [])).toBe('PPL (copy)');
   });
 
   it('normalises rest days and validates training days', () => {
@@ -136,18 +138,19 @@ describe('workout split rows', () => {
   it('maps template rows and rejects malformed schedules', () => {
     const row = {
       id: 't1',
-      profile_id: 'p1',
+      owner_id: 'u1',
+      source_profile_id: 'p1',
       split_name: ' Upper / Lower ',
       weekly_schedule: { days: upperLowerDays },
       created_at: '2026-11-08T00:00:00Z',
       updated_at: '2026-11-08T00:00:00Z',
     };
-    expect(toSplitTemplate(row)).toMatchObject({ id: 't1', splitName: 'Upper / Lower' });
+    expect(toSplitTemplate(row)).toMatchObject({ id: 't1', ownerId: 'u1', sourceProfileId: 'p1', splitName: 'Upper / Lower' });
     expect(toSplitTemplate({ ...row, weekly_schedule: { days: [] } })).toBeNull();
     expect(toSplitTemplate({ ...row, split_name: '  ' })).toBeNull();
   });
 
-  it('reads the active template id, and tolerates projects without the Phase 5 column', () => {
+  it('reads the active shared split id, and tolerates projects without the Phase 6 column', () => {
     const base = {
       id: 'plan',
       profile_id: 'p1',
@@ -156,7 +159,8 @@ describe('workout split rows', () => {
       weekly_schedule: { days: upperLowerDays },
       updated_at: '2026-11-08T00:00:00Z',
     };
-    expect(toWorkoutPlan({ ...base, active_split_template_id: 't1' })?.activeTemplateId).toBe('t1');
-    expect(toWorkoutPlan(base)?.activeTemplateId).toBeNull();
+    expect(toWorkoutPlan({ ...base, active_account_split_id: 't1' })?.activeWorkoutSplitId).toBe('t1');
+    expect(toWorkoutPlan({ ...base, active_split_template_id: 'old' })?.activeWorkoutSplitId).toBeNull();
+    expect(toWorkoutPlan(base)?.activeWorkoutSplitId).toBeNull();
   });
 });

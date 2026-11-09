@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BedDouble, ChevronDown, Droplets, StretchHorizontal } from 'lucide-react';
+import { BedDouble, BookOpen, ChevronDown, Droplets, StretchHorizontal } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
 import { MuscleGroupCard } from '../components/workout/MuscleCards';
 import { StretchSection } from '../components/stretch/StretchSection';
@@ -8,12 +8,15 @@ import { MUSCLE_GROUPS_BY_ID } from '../constants/muscleGroups';
 import { REST_DAY_LABEL, WORKOUT_CATEGORIES, getTodayDayId } from '../constants/workoutSchedule';
 import type { MuscleGroup, Profile, WorkoutDay } from '../types/gym';
 import { stretchesForMuscleGroups } from '../utils/stretchPlan';
+import { daySelectionSource, selectedExerciseIds, selectedRegionIds } from '../utils/workoutSelection';
 
 interface DayDetailsPageProps {
   profile: Profile;
   day: WorkoutDay;
   onBack: () => void;
   onSelectMuscleGroup: (group: MuscleGroup) => void;
+  /** Full exercise library, outside this day's selection. */
+  onOpenLibrary: () => void;
 }
 
 const RECOVERY_TIPS = [
@@ -43,11 +46,12 @@ function StretchToggle({ label, isOpen, controls, onToggle }: { label: string; i
  * One day of the active split. Everything shown is derived from `day.muscleGroupIds`
  * (built-in PPL or any saved custom split) — nothing is hard-coded per weekday.
  */
-export function DayDetailsPage({ day, onBack, onSelectMuscleGroup }: DayDetailsPageProps) {
+export function DayDetailsPage({ day, onBack, onSelectMuscleGroup, onOpenLibrary }: DayDetailsPageProps) {
   const isRestDay = day.muscleGroupIds.length === 0 || day.category === 'rest';
   const isToday = day.id === getTodayDayId();
   const workoutName = day.title ?? WORKOUT_CATEGORIES[day.category].label;
   const muscleGroups = day.muscleGroupIds.map((id) => MUSCLE_GROUPS_BY_ID[id]);
+  const selection = daySelectionSource(day);
   const preWorkout = stretchesForMuscleGroups(day.muscleGroupIds, 'WARMUP');
   const postWorkout = stretchesForMuscleGroups(day.muscleGroupIds, 'COOLDOWN');
   const [pane, setPane] = useState<StretchPane>(null);
@@ -123,13 +127,22 @@ export function DayDetailsPage({ day, onBack, onSelectMuscleGroup }: DayDetailsP
               Choose Muscle Group
             </h2>
             <ul className="card-list">
-              {muscleGroups.map((group) => (
-                <li key={group.id}>
-                  <MuscleGroupCard group={group} onSelect={onSelectMuscleGroup} />
-                </li>
-              ))}
+              {muscleGroups.map((group) => {
+                // Only the regions / variations chosen in the active split for this day.
+                const regionIds = selectedRegionIds(selection, group.id);
+                const regions = group.regions.filter((region) => regionIds.includes(region.id));
+                const exerciseCount = new Set(regionIds.flatMap((regionId) => selectedExerciseIds(selection, group.id, regionId))).size;
+                return (
+                  <li key={group.id}>
+                    <MuscleGroupCard group={group} regions={regions} exerciseCount={exerciseCount} onSelect={onSelectMuscleGroup} />
+                  </li>
+                );
+              })}
             </ul>
           </section>
+          <button type="button" className="link-button day-library-link" onClick={onOpenLibrary} data-testid="open-library">
+            <BookOpen size={16} aria-hidden="true" /> Browse the full exercise library
+          </button>
         </>
       )}
     </div>

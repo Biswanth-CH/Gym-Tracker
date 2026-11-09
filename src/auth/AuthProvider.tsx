@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { clearActiveProfileSelection } from '../services/activeProfileSession';
+import { profileUnlockSession } from '../services/profileUnlockSession';
 import {
   INITIAL_AUTH_REDIRECT,
   PASSWORD_UPDATED_MESSAGE,
@@ -98,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setNotice({ tone: 'error', message: RECOVERY_WRONG_BROWSER_MESSAGE });
         }
         setRecoveryPending(false);
+        profileUnlockSession.clearUnlockedProfiles();
         manualSignOut.current = false;
         setUser(null);
         setStatus('signed-out');
@@ -136,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     manualSignOut.current = true;
     cloudStore.stop();
     clearActiveProfileSelection();
+    profileUnlockSession.clearUnlockedProfiles();
     setRecoveryPending(false);
     try {
       await signOutRequest();
