@@ -148,6 +148,38 @@ minutes on repeated lockouts. **Forgot PIN** asks for the account password, then
 (the database requires a sign-in within the last 10 minutes). The PIN is a privacy lock between
 people sharing one account, not a replacement for the account password.
 
+## 8e. Phase 7 database update (you — required before publishing Phase 7)
+1. Make sure the Phase 6 migration (§8d) has been applied.
+2. *(Recommended)* Back up first (**Database → Backups**).
+3. Open **SQL Editor → New query**, paste the **whole** file
+   `supabase/migrations/20261124_phase7_form_videos_custom_theme.sql`, and click **Run**.
+4. It is additive and safe to run twice. It:
+   - adds `gym_profiles.custom_theme_color` (nullable; only `#RRGGBB` accepted). Existing profiles keep
+     their preset theme (the column stays NULL) and all eight presets stay valid;
+   - creates `profile_exercise_form_videos` (one row per saved form video: profile, exercise variation id,
+     name, http(s) URL, platform YouTube / Instagram / Other) with a cascade from `gym_profiles`,
+     an index, an `updated_at` trigger, RLS (`owns_gym_profile`) for select / insert / update / delete,
+     no `anon` access, and a Realtime entry;
+   - creates `profile_card_backgrounds` (one row per profile + card: `profile` or a weekday) holding the
+     image path and its dim (0–90 %, default 45), blur (0–20 px, default 0) and focal point (0–100 %),
+     with RLS that also requires the path to be inside that profile's own `backgrounds/` folder, an
+     `updated_at` trigger and a Realtime entry. The images themselves go into the **existing private**
+     `gym-profile-photos` bucket (`<user>/<profile>/backgrounds/…`): no new bucket and no storage-policy
+     change are needed — the existing policies already keep every file inside its owner's folder and
+     the 1 MB limit fits the app's compressed uploads (≤ 950 KB WebP / JPEG);
+   - does **not** touch PIN tables or functions, splits, attendance or any other data.
+5. Check (read-only):
+   ```sql
+   select column_name from information_schema.columns where table_name = 'gym_profiles' and column_name = 'custom_theme_color';
+   select count(*) from public.profile_exercise_form_videos;   -- 0 right after the migration
+   select count(*) from public.profile_card_backgrounds;       -- 0 right after the migration
+   select relname from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and not relrowsecurity;  -- no rows
+   ```
+6. Then publish the new `docs/` build.
+
+Form videos only store links. Previews use YouTube's privacy embed (no autoplay) and Instagram's
+official embed (loaded only when tapped); other links show as a plain link card.
+
 ## 9. Realtime (check)
 `schema.sql` already adds the tables to Realtime. To confirm:
 
@@ -156,6 +188,8 @@ people sharing one account, not a replacement for the account password.
    app uses; `profile_workout_split_templates` is the Phase 5 legacy table; `profile_pin_security`
    must **not** be published):
    - `account_workout_split_templates`
+   - `profile_exercise_form_videos` (Phase 7)
+   - `profile_card_backgrounds` (Phase 7)
    - `gym_profiles`
    - `attendance_records`
    - `daily_exercise_selections`

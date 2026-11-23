@@ -150,6 +150,33 @@ export function calculateCurrentStreak(attendance: AttendanceMap, context: Track
   return streak;
 }
 
+/**
+ * Highest streak ever (Phase 7) — the same rules as calculateCurrentStreak, applied to
+ * every run from the tracking start to today:
+ *  - consecutive ATTENDED valid days count,
+ *  - Sundays are skipped (never break or count),
+ *  - a MISSED or unmarked valid day ends a run,
+ *  - today still unmarked does not end the current run.
+ * So the highest streak is always ≥ the current streak.
+ */
+export function calculateLongestStreak(attendance: AttendanceMap, context: TrackerContext): number {
+  let longest = 0;
+  let run = 0;
+  if (context.trackingStartKey > context.todayKey) return 0;
+  for (let day = parseDateKey(context.trackingStartKey); toDateKey(day) <= context.todayKey; day = addDays(day, 1)) {
+    if (isSunday(day)) continue;
+    const key = toDateKey(day);
+    const status = attendance.get(key);
+    if (status === 'ATTENDED') {
+      run += 1;
+      longest = Math.max(longest, run);
+    } else if (!(key === context.todayKey && status === undefined)) {
+      run = 0;
+    }
+  }
+  return longest;
+}
+
 /** Rounded whole-number percentage for display, e.g. 70.59 → "71%". */
 export function formatPercentage(percentage: number | null): string {
   return percentage === null ? '—' : `${Math.round(percentage)}%`;

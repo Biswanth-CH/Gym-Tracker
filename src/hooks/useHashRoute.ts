@@ -11,6 +11,8 @@ import type { ExerciseCategory, Route } from '../types/gym';
  *   #/profile/<id>
  *   #/profile/<id>/consistency
  *   #/profile/<id>/overview
+ *   #/profile/<id>/(overview|consistency)/(weight-data|monthly-statistics)
+ *   …/exercise/<exercise>/form   (form reference videos; day and library routes)
  *   #/profile/<id>/library[/muscle/<muscle>[/region/<region>[/alternatives | /exercise/<exercise>]]]
  *   #/profile/<id>/day/<day>
  *   #/profile/<id>/day/<day>/muscle/<muscle>
@@ -36,14 +38,18 @@ export function parseHash(hash: string): Route {
   if (s[0] !== 'profile' || !s[1]) return { name: 'profiles' };
   const profileId = s[1];
 
-  if (s[2] === 'consistency') return { name: 'consistency', profileId };
-  if (s[2] === 'overview') return { name: 'overview', profileId };
+  if (s[2] === 'consistency' || s[2] === 'overview') {
+    const from = s[2];
+    if (s[3] === 'weight-data') return { name: 'weight-data', profileId, from };
+    if (s[3] === 'monthly-statistics') return { name: 'monthly-statistics', profileId, from };
+    return from === 'consistency' ? { name: 'consistency', profileId } : { name: 'overview', profileId };
+  }
   if (s[2] === 'library') {
     if (s[3] !== 'muscle' || !s[4]) return { name: 'library', profileId };
     const libraryMuscleId = s[4];
     if (s[5] !== 'region' || !s[6]) return { name: 'library-muscle', profileId, muscleId: libraryMuscleId };
     if (s[7] === 'exercise' && s[8]) {
-      return { name: 'library-exercise', profileId, muscleId: libraryMuscleId, regionId: s[6], exerciseId: s[8] };
+      return { name: 'library-exercise', profileId, muscleId: libraryMuscleId, regionId: s[6], exerciseId: s[8], ...(s[9] === 'form' ? { view: 'form' as const } : {}) };
     }
     return {
       name: 'library-region',
@@ -63,7 +69,7 @@ export function parseHash(hash: string): Route {
   const regionId = s[7];
 
   if (s[8] === 'exercise' && s[9]) {
-    return { name: 'exercise', profileId, dayId, muscleId, regionId, exerciseId: s[9] };
+    return { name: 'exercise', profileId, dayId, muscleId, regionId, exerciseId: s[9], ...(s[10] === 'form' ? { view: 'form' as const } : {}) };
   }
   return {
     name: 'region',
@@ -96,7 +102,11 @@ export function routeToHash(route: Route): string {
       return route.category === 'ALTERNATIVE' ? `${base}/${CATEGORY_SEGMENT.ALTERNATIVE}` : base;
     }
     case 'library-exercise':
-      return `#/profile/${enc(route.profileId)}/library/muscle/${enc(route.muscleId)}/region/${enc(route.regionId)}/exercise/${enc(route.exerciseId)}`;
+      return `#/profile/${enc(route.profileId)}/library/muscle/${enc(route.muscleId)}/region/${enc(route.regionId)}/exercise/${enc(route.exerciseId)}${route.view === 'form' ? '/form' : ''}`;
+    case 'weight-data':
+      return `#/profile/${enc(route.profileId)}/${route.from}/weight-data`;
+    case 'monthly-statistics':
+      return `#/profile/${enc(route.profileId)}/${route.from}/monthly-statistics`;
     case 'day':
       return `#/profile/${enc(route.profileId)}/day/${route.dayId}`;
     case 'muscle':
@@ -108,7 +118,7 @@ export function routeToHash(route: Route): string {
     case 'exercise':
       return `#/profile/${enc(route.profileId)}/day/${route.dayId}/muscle/${enc(route.muscleId)}/region/${enc(
         route.regionId,
-      )}/exercise/${enc(route.exerciseId)}`;
+      )}/exercise/${enc(route.exerciseId)}${route.view === 'form' ? '/form' : ''}`;
   }
 }
 

@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { BedDouble, BookOpen, ChevronDown, Droplets, StretchHorizontal } from 'lucide-react';
+import { BedDouble, BookOpen, ChevronDown, Droplets, Image as ImageIcon, StretchHorizontal } from 'lucide-react';
+import { DayCard } from '../components/DayCard';
+import { Modal } from '../components/Modal';
+import { Toast } from '../components/Toast';
+import { CardBackgroundEditor } from '../components/cardBackground/CardBackgroundEditor';
+import { useCardBackgrounds } from '../hooks/useCardBackgrounds';
+import { useToast } from '../hooks/useToast';
 import { BackButton } from '../components/BackButton';
 import { MuscleGroupCard } from '../components/workout/MuscleCards';
 import { StretchSection } from '../components/stretch/StretchSection';
@@ -46,7 +52,11 @@ function StretchToggle({ label, isOpen, controls, onToggle }: { label: string; i
  * One day of the active split. Everything shown is derived from `day.muscleGroupIds`
  * (built-in PPL or any saved custom split) — nothing is hard-coded per weekday.
  */
-export function DayDetailsPage({ day, onBack, onSelectMuscleGroup, onOpenLibrary }: DayDetailsPageProps) {
+export function DayDetailsPage({ profile, day, onBack, onSelectMuscleGroup, onOpenLibrary }: DayDetailsPageProps) {
+  const { getCardBackground } = useCardBackgrounds();
+  const dayBackground = getCardBackground(profile.id, day.id);
+  const [backgroundEditorOpen, setBackgroundEditorOpen] = useState(false);
+  const { toast, showToast } = useToast();
   const isRestDay = day.muscleGroupIds.length === 0 || day.category === 'rest';
   const isToday = day.id === getTodayDayId();
   const workoutName = day.title ?? WORKOUT_CATEGORIES[day.category].label;
@@ -75,6 +85,34 @@ export function DayDetailsPage({ day, onBack, onSelectMuscleGroup, onOpenLibrary
           {isRestDay ? REST_DAY_LABEL : muscleGroups.map((group) => group.name).join(' • ')}
         </p>
       </header>
+
+      {/* This weekday's card on the weekly plan, for THIS profile only (not shared, not copied with workouts). */}
+      <div className="day-card-customize">
+        <button type="button" className="button button--ghost button--compact" onClick={() => setBackgroundEditorOpen(true)} data-testid="day-customize-background">
+          <ImageIcon size={16} aria-hidden="true" /> Customize Card Background
+        </button>
+        {dayBackground && <span className="photo-picker__hint">Custom image on the weekly plan</span>}
+      </div>
+      <Modal
+        isOpen={backgroundEditorOpen}
+        onClose={() => setBackgroundEditorOpen(false)}
+        title={`${day.dayName} card background`}
+        description={`Shown behind ${day.dayName} on this profile's weekly plan. Other days and other profiles keep their own backgrounds.`}
+        placement="top"
+      >
+        {backgroundEditorOpen && (
+          <CardBackgroundEditor
+            profileId={profile.id}
+            cardKey={day.id}
+            background={dayBackground}
+            renderPreview={(preview) => <DayCard day={day} isToday={isToday} onSelect={() => undefined} background={preview} isPreview />}
+            onDone={(message) => {
+              setBackgroundEditorOpen(false);
+              if (message) showToast(message);
+            }}
+          />
+        )}
+      </Modal>
 
       {isRestDay ? (
         <>
@@ -145,6 +183,7 @@ export function DayDetailsPage({ day, onBack, onSelectMuscleGroup, onOpenLibrary
           </button>
         </>
       )}
+      <Toast toast={toast} />
     </div>
   );
 }

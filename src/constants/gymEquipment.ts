@@ -46,6 +46,14 @@ export const GYM_EQUIPMENT: readonly Equipment[] = [
   { id: 'hip-adductor', name: 'Hip Adductor', kind: 'MACHINE', supports: ['Hip Adduction'], allowedInAlternatives: false },
   { id: 'ab-crunch-machine', name: 'Ab Crunch Machine', kind: 'MACHINE', supports: ['Machine Crunch'], allowedInAlternatives: false },
   { id: 'forearm-machine', name: 'Forearm Machine', kind: 'MACHINE', supports: ['Wrist flexion', 'Wrist extension'], allowedInAlternatives: false },
+  {
+    id: 'plate-loaded-back-machine',
+    name: 'Plate-Loaded Back Machine',
+    kind: 'MACHINE',
+    supports: ['Cross Lat Pulldown (overhand or neutral grip)', 'T-Bar Row (wide or short grip)'],
+    allowedInAlternatives: false,
+    note: 'One plate-loaded machine. Grip choices are separate exercise variations, not separate equipment.',
+  },
 
   /* --- Machines that the Alternatives section may also use --- */
   { id: 'smith-machine', name: 'Smith Machine', kind: 'MACHINE', supports: ['Guided squats, presses, rows, RDLs and calf raises'], allowedInAlternatives: true },
@@ -67,6 +75,14 @@ export const GYM_EQUIPMENT: readonly Equipment[] = [
     supports: ['EZ-bar, dumbbell and barbell preacher curls'],
     allowedInAlternatives: true,
     note: 'A bench, not a preacher curl machine.',
+  },
+
+  {
+    id: 'roman-chair',
+    name: 'Roman Chair (Hyperextension Bench)',
+    kind: 'BENCH',
+    supports: ['Back extensions'],
+    allowedInAlternatives: true,
   },
 
   /* --- Free weights, bands, bodyweight --- */

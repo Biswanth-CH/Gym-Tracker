@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Plus, Scale, Trash2 } from 'lucide-react';
+import { useWeightUnitPreference } from '../../hooks/useWeightUnitPreference';
+import { BarChart3, CalendarDays, Plus, Scale } from 'lucide-react';
 import { useBodyWeight } from '../../hooks/useBodyWeight';
 import { errorMessage } from '../../services/cloud/cloudErrors';
 import { validateBodyWeight } from '../../services/cloud/bodyWeightService';
@@ -13,9 +14,7 @@ import {
   rollingWindow,
   type ComparisonPeriodLabel,
 } from '../../utils/bodyWeightAnalytics';
-import { formatShortDate } from '../../utils/dateUtils';
 import { convertWeight, formatNumber, parseNumberInput } from '../../utils/workoutUtils';
-import { ConfirmDialog } from '../ConfirmDialog';
 import { Modal } from '../Modal';
 import { BodyWeightChart } from './BodyWeightChart';
 
@@ -23,22 +22,24 @@ interface BodyWeightSectionProps {
   profile: Profile;
   todayKey: DateKey;
   onToast: (message: string, tone?: 'success' | 'error' | 'info') => void;
+  /** Phase 7: previous records live on their own pages instead of an inline list. */
+  onOpenWeightData: () => void;
+  onOpenMonthlyStatistics: () => void;
 }
 
 type RangeMode = 'week' | 'month' | 'custom';
 
 const PERIOD_LABEL: Record<RangeMode, ComparisonPeriodLabel> = { week: 'week', month: 'month', custom: 'period' };
 
-export function BodyWeightSection({ profile, todayKey, onToast }: BodyWeightSectionProps) {
-  const { entries, byDate, save, remove } = useBodyWeight(profile.id);
-  const [unit, setUnit] = useState<WeightUnit>('KG');
+export function BodyWeightSection({ profile, todayKey, onToast, onOpenWeightData, onOpenMonthlyStatistics }: BodyWeightSectionProps) {
+  const { entries, byDate, save } = useBodyWeight(profile.id);
+  const [unit, setUnit] = useWeightUnitPreference();
   const [mode, setMode] = useState<RangeMode>('week');
   const [customStart, setCustomStart] = useState(todayKey);
   const [customEnd, setCustomEnd] = useState(todayKey);
   const [appliedCustom, setAppliedCustom] = useState<{ start: DateKey; end: DateKey } | null>(null);
   const [rangeError, setRangeError] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const window = useMemo(() => {
     if (mode === 'week') return rollingWindow(todayKey, 7);
@@ -130,21 +131,14 @@ export function BodyWeightSection({ profile, todayKey, onToast }: BodyWeightSect
       )}
       {window && <BodyWeightChart points={visible} unit={unit} start={window.start} end={window.end} />}
 
-      {entries.length > 0 && (
-        <ul className="weight-list" aria-label="Saved body weight">
-          {[...entries].reverse().slice(0, 8).map((entry) => (
-            <li key={entry.id} className="weight-list__row">
-              <span>{formatShortDate(entry.date)}</span>
-              <strong>
-                {formatNumber(convertWeight(entry.weightKg, 'KG', unit))} {unit === 'KG' ? 'kg' : 'lb'}
-              </strong>
-              <button type="button" className="icon-button" aria-label={`Delete weight for ${formatShortDate(entry.date)}`} onClick={() => setPendingDeleteId(entry.id)}>
-                <Trash2 size={16} aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="weight-card__views" data-testid="weight-view-buttons">
+        <button type="button" className="button button--ghost" onClick={onOpenWeightData} data-testid="open-weight-data">
+          <CalendarDays size={18} aria-hidden="true" /> Weight Data
+        </button>
+        <button type="button" className="button button--ghost" onClick={onOpenMonthlyStatistics} data-testid="open-monthly-statistics">
+          <BarChart3 size={18} aria-hidden="true" /> Monthly Statistics
+        </button>
+      </div>
 
       <WeightLogModal
         isOpen={logging}
@@ -160,38 +154,29 @@ export function BodyWeightSection({ profile, todayKey, onToast }: BodyWeightSect
         }}
         onToast={onToast}
       />
-      <ConfirmDialog
-        isOpen={pendingDeleteId !== null}
-        title="Delete this weight?"
-        description="This removes the body-weight entry for that day. Workout sets and personal records stay as they are."
-        confirmLabel="Delete"
-        destructive
-        onCancel={() => setPendingDeleteId(null)}
-        onConfirm={() => {
-          const id = pendingDeleteId;
-          setPendingDeleteId(null);
-          if (!id) return;
-          void remove(id)
-            .then(() => onToast('Body weight deleted', 'info'))
-            .catch((error) => onToast(errorMessage(error, 'Could not delete the body weight.'), 'error'));
-        }}
-      />
     </section>
   );
 }
 
-function WeightLogModal({
+/** Log / edit one day's body weight. Reused by the Weight Data calendar (with a start date and Delete). */
+export function WeightLogModal({
   isOpen,
   todayKey,
+  initialDate,
   unit,
   onUnit,
   existing,
   onClose,
   onSave,
+  onDelete,
   onToast,
 }: {
   isOpen: boolean;
   todayKey: DateKey;
+  /** Date shown when the dialog opens (defaults to today). */
+  initialDate?: DateKey;
+  /** When provided and the date has an entry, a Delete action with a confirmation step is shown. */
+  onDelete?: (date: DateKey) => Promise<void>;
   unit: WeightUnit;
   onUnit: (unit: WeightUnit) => void;
   existing: Map<DateKey, { weightKg: number }>;
@@ -203,14 +188,17 @@ function WeightLogModal({
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const openKey = isOpen ? 'open' : 'closed';
   const [seen, setSeen] = useState(openKey);
   if (openKey !== seen) {
     setSeen(openKey);
     if (isOpen) {
-      const current = existing.get(todayKey);
-      setDate(todayKey);
+      const startDate = initialDate ?? todayKey;
+      const current = existing.get(startDate);
+      setDate(startDate);
+      setConfirmingDelete(false);
       setText(current ? formatNumber(convertWeight(current.weightKg, 'KG', unit)) : '');
       setError(null);
       setSaving(false);
@@ -258,7 +246,7 @@ function WeightLogModal({
         </label>
         <label className="field">
           <span className="field__label">Weight</span>
-          <input className="field__input" inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} />
+          <input className="field__input" inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} data-testid="weight-input" />
         </label>
         <div className="segmented" role="group" aria-label="Weight unit">
           {(['KG', 'LB'] as const).map((option) => (
@@ -273,14 +261,50 @@ function WeightLogModal({
             {error}
           </p>
         )}
-        <div className="modal__actions">
-          <button type="button" className="button button--ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </button>
-          <button type="button" className="button button--primary" onClick={() => void submit()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        {confirmingDelete ? (
+          <div className="weight-delete-confirm" role="alert" data-testid="weight-delete-confirm">
+            <p>Delete the weight saved for this date? This can’t be undone.</p>
+            <div className="modal__actions">
+              <button type="button" className="button button--ghost" onClick={() => setConfirmingDelete(false)} disabled={saving}>
+                Keep it
+              </button>
+              <button
+                type="button"
+                className="button button--danger"
+                disabled={saving}
+                data-testid="weight-delete-confirm-button"
+                onClick={async () => {
+                  if (!onDelete) return;
+                  setSaving(true);
+                  try {
+                    await onDelete(date);
+                  } catch (deleteError) {
+                    setError(errorMessage(deleteError, 'Could not delete the body weight.'));
+                  } finally {
+                    setSaving(false);
+                    setConfirmingDelete(false);
+                  }
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="modal__actions">
+            {onDelete && existing.has(date) && (
+              <button type="button" className="button button--ghost button--danger-text" onClick={() => setConfirmingDelete(true)} disabled={saving} data-testid="weight-delete">
+                Delete
+              </button>
+            )}
+            <button type="button" className="button button--ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </button>
+            <button type="button" className="button button--primary" onClick={() => void submit()} disabled={saving} data-testid="weight-save">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        )}
       </div>
     </Modal>
   );

@@ -1,4 +1,4 @@
-import { CalendarRange, ChevronLeft, ChevronRight, Dumbbell, Flame, Gauge } from 'lucide-react';
+import { CalendarRange, ChevronLeft, ChevronRight, Dumbbell, Flame, Gauge, Trophy, XCircle } from 'lucide-react';
 import { formatStreak } from '../../utils/streakDisplay';
 import { formatPercentage, type MonthInfo, type PeriodStats } from '../../utils/consistencyUtils';
 
@@ -6,6 +6,8 @@ interface ConsistencySummaryProps {
   month: MonthInfo;
   stats: PeriodStats;
   streak: number;
+  /** All-time highest streak (calculateLongestStreak). */
+  highestStreak: number;
   isCurrentMonth: boolean;
   canGoPrevious: boolean;
   canGoNext: boolean;
@@ -17,6 +19,7 @@ export function ConsistencySummary({
   month,
   stats,
   streak,
+  highestStreak,
   isCurrentMonth,
   canGoPrevious,
   canGoNext,
@@ -46,36 +49,56 @@ export function ConsistencySummary({
         </button>
       </div>
 
-      <dl className="stat-grid">
-        <div className="stat-card stat-card--visits">
-          <dt>
-            <Dumbbell size={16} aria-hidden="true" /> Gym Visits
-          </dt>
-          <dd data-testid="stat-visits">{stats.visits}</dd>
-          <dd className="stat-card__hint">{stats.missed} missed · {stats.unmarked} unmarked</dd>
-        </div>
+      {/* Row 1: the selected month's attendance (existing calculateRangeStats). */}
+      <dl className="stat-grid stat-grid--three" data-testid="stat-row-attendance">
         <div className="stat-card stat-card--valid">
           <dt>
-            <CalendarRange size={16} aria-hidden="true" /> Valid Gym Days
+            <CalendarRange size={14} aria-hidden="true" /> Valid Gym Days
           </dt>
           <dd data-testid="stat-valid">{stats.validDays}</dd>
-          <dd className="stat-card__hint">{isCurrentMonth ? 'Mon–Sat, so far' : 'Mon–Sat, excl. Sundays'}</dd>
+          <dd className="stat-card__hint">{isCurrentMonth ? 'Mon–Sat, so far' : 'Mon–Sat'}</dd>
         </div>
-        <div className="stat-card stat-card--consistency">
+        <div className="stat-card stat-card--visits">
           <dt>
-            <Gauge size={16} aria-hidden="true" /> Consistency
+            <Dumbbell size={14} aria-hidden="true" /> Went
           </dt>
-          <dd data-testid="stat-consistency">{formatPercentage(stats.percentage)}</dd>
-          <dd className="stat-card__progress" aria-hidden="true"><span className="progress">
-            <span className="progress__bar" style={{ width: `${percentage}%` }} />
-          </span></dd>
+          <dd data-testid="stat-visits">{stats.visits}</dd>
+          <dd className="stat-card__hint">{stats.unmarked} unmarked</dd>
+        </div>
+        <div className="stat-card stat-card--missed">
+          <dt>
+            <XCircle size={14} aria-hidden="true" /> Missed
+          </dt>
+          <dd data-testid="stat-missed">{stats.missed}</dd>
+          <dd className="stat-card__hint">Did not go</dd>
+        </div>
+      </dl>
+      {/* Row 2: streaks (all-time highest + current) and the month's consistency %. */}
+      <dl className="stat-grid stat-grid--three" data-testid="stat-row-streaks">
+        <div className="stat-card stat-card--highest">
+          <dt>
+            <Trophy size={14} aria-hidden="true" /> Highest Streak
+          </dt>
+          <dd data-testid="stat-highest-streak">{formatStreak(highestStreak)}</dd>
+          <dd className="stat-card__hint">All time</dd>
         </div>
         <div className="stat-card stat-card--streak">
           <dt>
-            <Flame size={16} aria-hidden="true" /> Current Streak
+            <Flame size={14} aria-hidden="true" /> Current Streak
           </dt>
           <dd data-testid="stat-streak">{formatStreak(streak)}</dd>
-          <dd className="stat-card__hint">Sundays don’t break it</dd>
+          <dd className="stat-card__hint" title="Sundays don’t break a streak">Ongoing</dd>
+        </div>
+        <div className="stat-card stat-card--consistency">
+          <dt>
+            <Gauge size={14} aria-hidden="true" /> Consistency
+          </dt>
+          <dd data-testid="stat-consistency">{formatPercentage(stats.percentage)}</dd>
+          <dd className="stat-card__progress" aria-hidden="true">
+            <span className="progress">
+              <span className="progress__bar" style={{ width: `${percentage}%` }} />
+            </span>
+          </dd>
         </div>
       </dl>
     </section>

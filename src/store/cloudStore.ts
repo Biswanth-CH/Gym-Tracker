@@ -13,6 +13,8 @@ import {
   type RecordRow,
   type SelectionRow,
   type SplitTemplateRow,
+  type FormVideoRow,
+  type CardBackgroundRow,
   type TemplateRow,
   type TrackerRow,
   type WorkoutPlanRow,
@@ -48,6 +50,8 @@ export interface CloudSnapshot {
   workoutPlans: WorkoutPlanRow[];
   bodyWeights: BodyWeightRow[];
   splitTemplates: SplitTemplateRow[];
+  formVideos: FormVideoRow[];
+  cardBackgrounds: CardBackgroundRow[];
   /** PIN-locked profile ids (from list_locked_profiles(); never hashes). */
   lockedProfileIds: string[];
   /** storage path → signed URL */
@@ -64,6 +68,8 @@ type RowsByTable = {
   profile_workout_plans: WorkoutPlanRow;
   body_weight_entries: BodyWeightRow;
   account_workout_split_templates: SplitTemplateRow;
+  profile_exercise_form_videos: FormVideoRow;
+  profile_card_backgrounds: CardBackgroundRow;
 };
 
 const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
@@ -76,6 +82,8 @@ const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
   profile_workout_plans: 'workoutPlans',
   body_weight_entries: 'bodyWeights',
   account_workout_split_templates: 'splitTemplates',
+  profile_exercise_form_videos: 'formVideos',
+  profile_card_backgrounds: 'cardBackgrounds',
 };
 
 const INITIAL: CloudSnapshot = {
@@ -94,6 +102,8 @@ const INITIAL: CloudSnapshot = {
   workoutPlans: [],
   bodyWeights: [],
   splitTemplates: [],
+  formVideos: [],
+  cardBackgrounds: [],
   lockedProfileIds: [],
   photoUrls: {},
 };
@@ -187,6 +197,7 @@ export const cloudStore = {
             setState({ [SLICE[table]]: rows, lastSyncedAt: Date.now() } as Partial<CloudSnapshot>);
             // PIN set / removed bumps the profile row, so re-read locks with profiles.
             if (table === 'gym_profiles') await Promise.all([refreshPhotoUrls(false), cloudStore.refreshLockedProfiles()]);
+            if (table === 'profile_card_backgrounds') await refreshPhotoUrls(false);
           })
           .catch((error) => setState({ error: errorMessage(error, 'Sync failed.') }));
       }, 150),
@@ -199,7 +210,7 @@ export const cloudStore = {
     const byId = new Map(slice.map((row) => [row.id, row]));
     rows.forEach((row) => byId.set(row.id, row));
     setState({ [SLICE[table]]: [...byId.values()] } as Partial<CloudSnapshot>);
-    if (table === 'gym_profiles') void refreshPhotoUrls(false);
+    if (table === 'gym_profiles' || table === 'profile_card_backgrounds') void refreshPhotoUrls(false);
   },
 
   /** Removes rows locally after a successful delete. */
@@ -219,6 +230,8 @@ export const cloudStore = {
       records: state.records.filter((row) => row.profile_id !== profileId),
       workoutPlans: state.workoutPlans.filter((row) => row.profile_id !== profileId),
       bodyWeights: state.bodyWeights.filter((row) => row.profile_id !== profileId),
+      formVideos: state.formVideos.filter((row) => row.profile_id !== profileId),
+      cardBackgrounds: state.cardBackgrounds.filter((row) => row.profile_id !== profileId),
     });
   },
 
@@ -247,7 +260,7 @@ function loadTable(table: CloudTable): Promise<unknown[]> {
   return fetchAllRows(table);
 }
 
-const OPTIONAL_TABLES = new Set<CloudTable>(['profile_workout_plans', 'body_weight_entries', 'account_workout_split_templates']);
+const OPTIONAL_TABLES = new Set<CloudTable>(['profile_workout_plans', 'body_weight_entries', 'account_workout_split_templates', 'profile_exercise_form_videos', 'profile_card_backgrounds']);
 
 /** Newer tables may not exist until the Phase 4 / Phase 6 SQL migrations are applied. */
 function isMissingOptionalTable(table: CloudTable, error: unknown): boolean {
@@ -268,7 +281,11 @@ async function loadTableOrEmpty(table: CloudTable): Promise<unknown[]> {
 }
 
 async function refreshPhotoUrls(forceAll: boolean): Promise<void> {
-  const paths = state.profiles.map((row) => row.photo_path).filter((path): path is string => Boolean(path));
+  // Avatars and card backgrounds share the private bucket, so both are signed here.
+  const paths = [
+    ...state.profiles.map((row) => row.photo_path),
+    ...state.cardBackgrounds.map((row) => row.storage_path),
+  ].filter((path): path is string => Boolean(path));
   const missing = forceAll ? paths : paths.filter((path) => !state.photoUrls[path]);
   if (missing.length === 0) return;
   try {

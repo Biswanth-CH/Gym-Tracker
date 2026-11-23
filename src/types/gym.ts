@@ -17,6 +17,8 @@ export interface Profile {
   heightCm: number | null;
   /** Phase 6 colour theme (`gym_profiles.theme_key`). Defaults to lime. */
   themeKey: ProfileThemeKey;
+  /** Phase 7: exact custom colour (#RRGGBB) that overrides the preset; null = use `themeKey`. */
+  customThemeColor: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,6 +38,28 @@ export interface ProfileInput {
   ageYears: number | null;
   heightCm: number | null;
   themeKey: ProfileThemeKey;
+  customThemeColor: string | null;
+}
+
+/** Phase 7 form-reference videos (`profile_exercise_form_videos`). */
+export type FormVideoPlatform = 'YOUTUBE' | 'INSTAGRAM' | 'OTHER';
+
+export interface ExerciseFormVideo {
+  id: string;
+  profileId: string;
+  /** Stable library id of the exercise variation. */
+  exerciseId: string;
+  videoName: string;
+  videoUrl: string;
+  platform: FormVideoPlatform;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExerciseFormVideoInput {
+  videoName: string;
+  videoUrl: string;
+  platform: FormVideoPlatform;
 }
 
 /**
@@ -424,7 +448,10 @@ export type Route =
   | { name: 'library'; profileId: string }
   | { name: 'library-muscle'; profileId: string; muscleId: string }
   | { name: 'library-region'; profileId: string; muscleId: string; regionId: string; category: ExerciseCategory }
-  | { name: 'library-exercise'; profileId: string; muscleId: string; regionId: string; exerciseId: string }
+  | { name: 'library-exercise'; profileId: string; muscleId: string; regionId: string; exerciseId: string; view?: 'form' }
+  /** Phase 7 body-weight views; `from` decides where Back goes. */
+  | { name: 'weight-data'; profileId: string; from: 'overview' | 'consistency' }
+  | { name: 'monthly-statistics'; profileId: string; from: 'overview' | 'consistency' }
   | { name: 'muscle'; profileId: string; dayId: DayId; muscleId: string }
   | {
       name: 'region';
@@ -441,4 +468,33 @@ export type Route =
       muscleId: string;
       regionId: string;
       exerciseId: string;
+      /** Phase 7: 'form' opens the variation's Form reference videos page. */
+      view?: 'form';
     };
+
+/* ---------- Phase 7: card background images ---------- */
+
+/** Which card a background belongs to: the profile's tile on the Profiles page, or one weekday card. */
+export type CardBackgroundKey = 'profile' | DayId;
+
+/** Appearance of a background image (all values persisted in `profile_card_backgrounds`). */
+export interface CardBackgroundSettings {
+  /** Dark overlay strength above the image, 0–90 %. */
+  dimPercent: number;
+  /** Blur of the image layer only, 0–20 px. */
+  blurPx: number;
+  /** Focal point (object-position) in %, 0–100. */
+  focalX: number;
+  focalY: number;
+}
+
+export interface CardBackground extends CardBackgroundSettings {
+  id: string;
+  profileId: string;
+  cardKey: CardBackgroundKey;
+  /** Private storage path `<user>/<profile>/backgrounds/<file>`. */
+  storagePath: string;
+  /** Short-lived signed URL (null while signing or if signing failed). */
+  imageUrl: string | null;
+  updatedAt: string;
+}

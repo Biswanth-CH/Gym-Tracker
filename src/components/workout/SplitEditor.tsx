@@ -1,11 +1,18 @@
 import { useEffect, useId, useState } from 'react';
-import { ChevronDown, Search } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Copy, Search } from 'lucide-react';
 import { EXERCISES_BY_ID } from '../../constants/exerciseLibrary';
 import { MUSCLE_GROUPS, MUSCLE_GROUPS_BY_ID } from '../../constants/muscleGroups';
 import { WEEKLY_SCHEDULE } from '../../constants/workoutSchedule';
 import { errorMessage } from '../../services/cloud/cloudErrors';
 import type { CustomDayPlan, DayId, MuscleGroupId } from '../../types/gym';
-import { SPLIT_NAME_MAX_LENGTH, cloneSchedule, normalizeSchedule, validateCustomSchedule } from '../../utils/workoutPlan';
+import {
+  SPLIT_NAME_MAX_LENGTH,
+  cloneSchedule,
+  copyDayWorkout,
+  isDayConfigured,
+  normalizeSchedule,
+  validateCustomSchedule,
+} from '../../utils/workoutPlan';
 import {
   exerciseIdsOfRegion,
   selectedExerciseIds,
@@ -37,7 +44,7 @@ const CATEGORY_TAG = { MACHINE: 'Machine', ALTERNATIVE: 'Alt' } as const;
 
 /**
  * Seven days × three levels: Muscle Group → Target Region → Exercise Variation.
- * Groups and regions are accordions (collapsed by default), so the 134-exercise library is
+ * Groups and regions are accordions (collapsed by default), so the full exercise library is
  * never rendered at once. All selection rules live in utils/workoutSelection.ts.
  */
 export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, sharedProfileCount = 0, onClose, onSave }: SplitEditorProps) {
@@ -48,6 +55,10 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
   const [saving, setSaving] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set());
   const [searchByGroupKey, setSearchByGroupKey] = useState<Record<string, string>>({});
+  /** "Copy From Another Day" panel: which day is being filled, and from where. */
+  const [copyDestinationDayId, setCopyDestinationDayId] = useState<DayId | null>(null);
+  const [copySourceDayId, setCopySourceDayId] = useState<DayId | null>(null);
+  const [copyNotice, setCopyNotice] = useState<{ dayId: DayId; message: string; tone: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -57,7 +68,38 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
     setSaving(false);
     setExpandedKeys(new Set());
     setSearchByGroupKey({});
+    setCopyDestinationDayId(null);
+    setCopySourceDayId(null);
+    setCopyNotice(null);
   }, [isOpen, splitName, days]);
+
+  const dayName = (dayId: DayId) => WEEKLY_SCHEDULE.find((meta) => meta.id === dayId)?.dayName ?? dayId;
+  const describeDay = (day: CustomDayPlan) =>
+    day.isRest || day.muscleGroupIds.length === 0
+      ? `${day.workoutName.trim() || 'Rest'} (rest)`
+      : `${day.workoutName.trim() || 'Workout'} (${day.muscleGroupIds.map((id) => MUSCLE_GROUPS_BY_ID[id].name).join(', ')})`;
+
+  const openCopyPanel = (destinationDayId: DayId) => {
+    setCopyDestinationDayId(destinationDayId);
+    setCopySourceDayId(WEEKLY_SCHEDULE.find((meta) => meta.id !== destinationDayId)?.id ?? null);
+    setCopyNotice(null);
+  };
+
+  /** Replaces the destination day with an exact copy of the source day (modes, empty selections, name, rest). */
+  const confirmCopy = () => {
+    if (!copyDestinationDayId || !copySourceDayId) return;
+    const destinationDayId = copyDestinationDayId;
+    const sourceDayId = copySourceDayId;
+    try {
+      setDraft((current) => copyDayWorkout(current, sourceDayId, destinationDayId));
+      setExpandedKeys((current) => new Set([...current].filter((key) => !key.startsWith(`${destinationDayId}:`))));
+      setCopyNotice({ dayId: destinationDayId, tone: 'success', message: `Copied ${dayName(sourceDayId)}’s workout to ${dayName(destinationDayId)}.` });
+      setError(null);
+    } catch (copyError) {
+      setCopyNotice({ dayId: destinationDayId, tone: 'error', message: errorMessage(copyError, 'Could not copy that day.') });
+    }
+    setCopyDestinationDayId(null);
+  };
 
   const updateDay = (dayId: DayId, change: (day: CustomDayPlan) => CustomDayPlan) => {
     setDraft((current) => current.map((day) => (day.dayId === dayId ? change(day) : day)));
@@ -261,6 +303,60 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
           return (
             <fieldset key={meta.id} className="split-day" data-testid={`split-day-${meta.id}`}>
               <legend className="split-day__legend">{meta.dayName}</legend>
+              <div className="split-day__copy">
+                <button
+                  type="button"
+                  className="chip-button"
+                  aria-expanded={copyDestinationDayId === meta.id}
+                  onClick={() => (copyDestinationDayId === meta.id ? setCopyDestinationDayId(null) : openCopyPanel(meta.id))}
+                  data-testid={`copy-day-${meta.id}`}
+                >
+                  <Copy size={14} aria-hidden="true" /> Copy From Another Day
+                </button>
+              </div>
+              {copyDestinationDayId === meta.id && copySourceDayId && (
+                <div className="copy-day-panel" role="group" aria-label={`Copy a workout into ${meta.dayName}`} data-testid={`copy-day-panel-${meta.id}`}>
+                  <label className="field">
+                    <span className="field__label">Copy from</span>
+                    <select
+                      className="field__input field__select"
+                      value={copySourceDayId}
+                      onChange={(event) => setCopySourceDayId(event.target.value as DayId)}
+                      data-testid={`copy-day-source-${meta.id}`}
+                    >
+                      {draft
+                        .filter((candidate) => candidate.dayId !== meta.id)
+                        .map((candidate) => (
+                          <option key={candidate.dayId} value={candidate.dayId}>
+                            {dayName(candidate.dayId)} — {describeDay(candidate)}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <p className="copy-day-panel__summary" data-testid={`copy-day-summary-${meta.id}`}>
+                    <strong>{dayName(copySourceDayId)}</strong> → <strong>{meta.dayName}</strong>: every muscle group, region and exercise choice is copied
+                    exactly.
+                  </p>
+                  {isDayConfigured(day) && (
+                    <p className="copy-day-panel__warning" role="alert">
+                      This replaces {meta.dayName}’s current workout: {describeDay(day)}.
+                    </p>
+                  )}
+                  <div className="split-bulk">
+                    <button type="button" className="chip-button" onClick={() => setCopyDestinationDayId(null)}>
+                      Cancel
+                    </button>
+                    <button type="button" className="button button--primary button--compact" onClick={confirmCopy} data-testid={`copy-day-confirm-${meta.id}`}>
+                      {isDayConfigured(day) ? `Replace ${meta.dayName}` : `Copy to ${meta.dayName}`}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {copyNotice?.dayId === meta.id && (
+                <p className={copyNotice.tone === 'success' ? 'inline-success' : 'field__error'} role="status" data-testid={`copy-day-notice-${meta.id}`}>
+                  {copyNotice.tone === 'success' && <CheckCircle2 size={16} aria-hidden="true" />} {copyNotice.message}
+                </p>
+              )}
               <label className="split-day__rest">
                 <input
                   type="checkbox"

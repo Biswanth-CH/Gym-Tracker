@@ -1,14 +1,12 @@
 import { useMemo, useState } from 'react';
-import { BarChart3 } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
-import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
 import { AttendanceCalendar } from '../components/consistency/AttendanceCalendar';
 import { AttendanceModal } from '../components/consistency/AttendanceModal';
 import { AttendanceQuickLog } from '../components/consistency/AttendanceQuickLog';
 import { ConsistencySummary } from '../components/consistency/ConsistencySummary';
 import { BodyWeightSection } from '../components/consistency/BodyWeightSection';
-import { MonthlyStatistics } from '../components/consistency/MonthlyStatistics';
+import { AttendanceColourInfo } from '../components/consistency/AttendanceColourInfo';
 import { useAttendanceTracker } from '../hooks/useAttendanceTracker';
 import { useExerciseSelections } from '../hooks/useCloud';
 import { EXERCISES_BY_ID } from '../constants/exerciseLibrary';
@@ -18,8 +16,8 @@ import { useToast } from '../hooks/useToast';
 import type { AttendanceStatus, DateKey, Profile } from '../types/gym';
 import {
   calculateCurrentStreak,
+  calculateLongestStreak,
   calculateMonthStats,
-  calculateRangeStats,
   getDayState,
   getTrackedMonths,
   isMarkableState,
@@ -29,15 +27,16 @@ import { formatLongDate } from '../utils/dateUtils';
 interface ConsistencyTrackerPageProps {
   profile: Profile;
   onBack: () => void;
+  onOpenWeightData: () => void;
+  onOpenMonthlyStatistics: () => void;
 }
 
 const TRACKED_MONTH_COUNT = 12;
 
-export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPageProps) {
+export function ConsistencyTrackerPage({ profile, onBack, onOpenWeightData, onOpenMonthlyStatistics }: ConsistencyTrackerPageProps) {
   const { toast, showToast } = useToast();
   const { todayKey, attendance, loadError, context, choose } = useAttendanceTracker(profile, showToast);
   const [selectedDate, setSelectedDate] = useState<DateKey | null>(null);
-  const [monthlyOpen, setMonthlyOpen] = useState(false);
 
   const months = useMemo(() => getTrackedMonths(todayKey, TRACKED_MONTH_COUNT), [todayKey]);
   const currentMonthKey = months[months.length - 1].key;
@@ -53,11 +52,8 @@ export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPa
   const selectedStats =
     monthlyRows.find((row) => row.month.key === selectedMonth.key)?.stats ??
     calculateMonthStats(selectedMonth, attendance, context);
-  const yearStats = useMemo(
-    () => calculateRangeStats(months[0].firstDayKey, months[months.length - 1].lastDayKey, attendance, context),
-    [months, attendance, context],
-  );
   const streak = useMemo(() => calculateCurrentStreak(attendance, context), [attendance, context]);
+  const highestStreak = useMemo(() => calculateLongestStreak(attendance, context), [attendance, context]);
 
   const handleChoose = async (date: DateKey, status: AttendanceStatus | null) => {
     if (await choose(date, status)) setSelectedDate(null);
@@ -105,6 +101,7 @@ export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPa
         month={selectedMonth}
         stats={selectedStats}
         streak={streak}
+        highestStreak={highestStreak}
         isCurrentMonth={selectedMonth.key === currentMonthKey}
         canGoPrevious={visibleIndex > 0}
         canGoNext={visibleIndex < months.length - 1}
@@ -117,7 +114,7 @@ export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPa
           <h2 id="calendar-heading" className="heatmap-card__title">
             Attendance · last 12 months
           </h2>
-          <span className="heatmap-card__count">{yearStats.visits} visits</span>
+          <AttendanceColourInfo />
         </div>
         <AttendanceCalendar
           months={months}
@@ -132,23 +129,14 @@ export function ConsistencyTrackerPage({ profile, onBack }: ConsistencyTrackerPa
 
       <AttendanceQuickLog attendance={attendance} context={context} onChoose={(date, status) => void choose(date, status)} title="Today" />
 
-      <BodyWeightSection profile={profile} todayKey={todayKey} onToast={showToast} />
+      <BodyWeightSection
+        profile={profile}
+        todayKey={todayKey}
+        onToast={showToast}
+        onOpenWeightData={onOpenWeightData}
+        onOpenMonthlyStatistics={onOpenMonthlyStatistics}
+      />
 
-      <button type="button" className="button button--ghost monthly-open" onClick={() => setMonthlyOpen(true)}>
-        <BarChart3 size={18} aria-hidden="true" /> View Monthly Statistics
-      </button>
-      <Modal isOpen={monthlyOpen} onClose={() => setMonthlyOpen(false)} title="Monthly statistics" placement="top">
-        <MonthlyStatistics
-          rows={[...monthlyRows].reverse()}
-          yearStats={yearStats}
-          selectedMonthKey={selectedMonth.key}
-          onSelectMonth={(key) => {
-            setSelectedMonthKey(key);
-            setMonthlyOpen(false);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-        />
-      </Modal>
 
       <AttendanceModal
         dateKey={selectedDate}

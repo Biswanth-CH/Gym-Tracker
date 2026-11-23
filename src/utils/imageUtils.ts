@@ -96,3 +96,46 @@ export async function processProfileImage(file: File): Promise<string> {
     URL.revokeObjectURL(url);
   }
 }
+
+/** Size that fits `maxDimension` on the longest side, never enlarging. Exported for tests. */
+export function fitWithin(width: number, height: number, maxDimension: number): { width: number; height: number } {
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), type, quality));
+}
+
+/**
+ * Card backgrounds (Phase 7): validates the file, scales it to ≤ `maxDimension` on the
+ * longest side and re-encodes it (WebP, JPEG fallback), lowering quality and size until
+ * it is under `maxBytes` (the private bucket accepts up to 1 MB).
+ */
+export async function compressBackgroundImage(file: File, maxDimension: number, maxBytes: number): Promise<Blob> {
+  const validationError = validateImageFile(file);
+  if (validationError) throw new ImageProcessingError(validationError);
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(url);
+    let dimension = maxDimension;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const size = fitWithin(image.naturalWidth, image.naturalHeight, dimension);
+      const canvas = document.createElement('canvas');
+      canvas.width = size.width;
+      canvas.height = size.height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new ImageProcessingError('This browser can’t process images.');
+      context.drawImage(image, 0, 0, size.width, size.height);
+      for (const quality of [0.82, 0.7, 0.58]) {
+        const webp = await canvasToBlob(canvas, 'image/webp', quality);
+        const blob = webp && webp.type === 'image/webp' ? webp : await canvasToBlob(canvas, 'image/jpeg', quality);
+        if (blob && blob.size <= maxBytes) return blob;
+      }
+      dimension = Math.round(dimension * 0.75);
+    }
+    throw new ImageProcessingError('This image couldn’t be made small enough. Please try a different one.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}

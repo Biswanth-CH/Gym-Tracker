@@ -8,7 +8,9 @@ For the full step-by-step setup, see `../SUPABASE_SETUP.md`.
 ```
 auth.users (Supabase accounts)
    ├── account_workout_split_templates   owner_id = auth.uid(); shared split library of the account (Phase 6)
-   └── gym_profiles            owner_id = auth.uid(); optional age_years, height_cm (5); theme_key (6)
+   └── gym_profiles            owner_id = auth.uid(); optional age_years, height_cm (5); theme_key (6); custom_theme_color (7)
+          ├── profile_exercise_form_videos  form-reference links per variation (Phase 7)
+          ├── profile_card_backgrounds   card background image + dim / blur / focal per profile card and weekday (Phase 7)
           ├── profile_pin_security         bcrypt hash + lockout; NO API grants, functions only (Phase 6)
           ├── attendance_records          unique (profile_id, date)
           ├── daily_exercise_selections   unique (profile_id, exercise_id, date)
@@ -26,6 +28,7 @@ Migrations for existing projects (run each once, in order, in the SQL Editor; al
 - `migrations/20261107_workout_plans_and_body_weight.sql` (Phase 4)
 - `migrations/20261108_phase5_profile_details_and_workout_splits.sql` (Phase 5: age / height, per-profile saved splits). Optional once Phase 6 is applied: after Phase 6 its split-copy step no longer runs.
 - `migrations/20261109_phase6_shared_splits_themes_pins.sql` (Phase 6: shared account split library with every existing split copied and active choices kept, `theme_key`, PIN lock). See `../SUPABASE_SETUP.md` §8d.
+- `migrations/20261124_phase7_form_videos_custom_theme.sql` (Phase 7: `gym_profiles.custom_theme_color`, `profile_exercise_form_videos` and `profile_card_backgrounds`, each with RLS, trigger and Realtime). Card background files use the existing private `gym-profile-photos` bucket under `<user>/<profile>/backgrounds/`; the existing storage policies already restrict objects to the owner's `<user>/` folder, and the table policies also require the stored path to be inside that profile's own `backgrounds/` folder. See `../SUPABASE_SETUP.md` §8e.
 
 - Shared splits: RLS `owner_id = auth.uid()`; a `source_profile_id` must be one of the caller's profiles. The trigger `check_active_account_split` (SECURITY DEFINER) stops a profile from activating another account's split. Deleting a shared split clears `active_account_split_id` (ON DELETE SET NULL); deleting a profile keeps the shared splits it created.
 - PIN functions (SECURITY DEFINER, `search_path = public, extensions, pg_temp`, `owns_gym_profile` check, execute granted to `authenticated` only): `list_locked_profiles()`, `verify_profile_pin(profile, pin)`, `set_profile_pin(profile, new, current)`, `remove_profile_pin(profile, current)`, `reset_profile_pin_after_reauth(profile)` (requires a JWT `amr` sign-in within 10 minutes). The internal `profile_pin_check_internal` is not executable by API roles.
@@ -51,6 +54,9 @@ Migrations for existing projects (run each once, in order, in the SQL Editor; al
 ## Realtime
 The synced tables, including `profile_workout_plans` and `body_weight_entries`, are added to the `supabase_realtime` publication. Realtime applies
 RLS, so each signed-in device only receives events for its own account's rows.
+
+## Verified locally (Phase 7)
+`schema.sql` (fresh, run twice) and the Phase 7 migration (run twice on a Phase 6 project with profiles, themes and a PIN) were executed in PGlite with pgcrypto: 39 checks passed — card backgrounds (one row per profile + card, path must be in the profile's own backgrounds folder, limits, Monday independent of Thursday, cross-account isolation, cascade), storage uploads limited to the owner's folder, presets kept, custom colour format enforced, PIN data untouched, several videos per variation, http(s)-only URLs, platform / name checks, cross-account insert / read / update / delete / move blocked, anon denied, cascade on profile delete, RLS on every table, Realtime has the videos table but still not the PIN table. Not run against the real project.
 
 ## Verified locally (Phase 6)
 `schema.sql` and the Phase 6 migration were run in PGlite with pgcrypto (stand-ins for `auth.uid()`,

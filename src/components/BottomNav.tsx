@@ -12,6 +12,8 @@ function activeTab(route: Route): 'profiles' | 'weekly' | 'consistency' | null {
   if (route.name === 'profiles') return 'profiles';
   if (route.name === 'consistency') return 'consistency';
   if (route.name === 'overview') return null;
+  // Weight Data / Monthly Statistics belong to the screen they were opened from.
+  if (route.name === 'weight-data' || route.name === 'monthly-statistics') return route.from === 'consistency' ? 'consistency' : null;
   return 'weekly';
 }
 

@@ -23,6 +23,9 @@ import { MuscleRegionPage } from './pages/MuscleRegionPage';
 import { ProfileDashboard } from './pages/ProfileDashboard';
 import { ProfileOverviewPage } from './pages/ProfileOverviewPage';
 import { ProfilePinGatePage } from './pages/ProfilePinGatePage';
+import { ExerciseFormVideosPage } from './pages/ExerciseFormVideosPage';
+import { WeightDataPage } from './pages/WeightDataPage';
+import { MonthlyStatisticsPage } from './pages/MonthlyStatisticsPage';
 import { ExerciseLibraryPage } from './pages/ExerciseLibraryPage';
 import { useProfileLocks } from './hooks/useProfileLocks';
 import { allowedExerciseIdsByRegion } from './utils/workoutSelection';
@@ -161,11 +164,12 @@ function Routes({ onImport }: { onImport?: () => void }) {
 
   const activeProfile = route.name === 'profiles' ? null : profiles.find((candidate) => candidate.id === route.profileId) ?? null;
   const activeThemeKey = activeProfile?.themeKey ?? null;
+  const activeCustomThemeColor = activeProfile?.customThemeColor ?? null;
 
-  // The open profile's theme colours the whole app; the Profiles page stays neutral.
+  // The open profile's theme (preset or custom colour) colours the whole app; the Profiles page stays neutral.
   useEffect(() => {
-    setBaseTheme(activeThemeKey);
-  }, [activeThemeKey]);
+    setBaseTheme(activeThemeKey ? { themeKey: activeThemeKey, customThemeColor: activeCustomThemeColor } : null);
+  }, [activeThemeKey, activeCustomThemeColor]);
   useEffect(() => () => setBaseTheme(null), []);
 
   const notFound: NotFoundRenderer = (title, message, actionLabel, onAction) => (
@@ -274,6 +278,8 @@ function ProfileScreens({
         onOpenWeeklyPlan={openDashboard}
         onOpenConsistency={() => navigate({ name: 'consistency', profileId })}
         onOpenLibrary={openLibrary}
+        onOpenWeightData={() => navigate({ name: 'weight-data', profileId, from: 'overview' })}
+        onOpenMonthlyStatistics={() => navigate({ name: 'monthly-statistics', profileId, from: 'overview' })}
         onSwitchProfile={goHome}
         onUpdateProfile={onUpdateProfile}
         onDeleteProfile={onDeleteProfile}
@@ -282,7 +288,27 @@ function ProfileScreens({
   }
 
   if (route.name === 'consistency') {
-    return <ConsistencyTrackerPage key={profileId} profile={profile} onBack={openOverview} />;
+    return (
+      <ConsistencyTrackerPage
+        key={profileId}
+        profile={profile}
+        onBack={openOverview}
+        onOpenWeightData={() => navigate({ name: 'weight-data', profileId, from: 'consistency' })}
+        onOpenMonthlyStatistics={() => navigate({ name: 'monthly-statistics', profileId, from: 'consistency' })}
+      />
+    );
+  }
+
+  /* ---------- Body-weight detail views (Back returns to where they were opened) ---------- */
+  if (route.name === 'weight-data' || route.name === 'monthly-statistics') {
+    const backToOverview = route.from === 'overview';
+    const backLabel = backToOverview ? 'Profile overview' : 'Consistency';
+    const goBack = backToOverview ? openOverview : () => navigate({ name: 'consistency', profileId });
+    return route.name === 'weight-data' ? (
+      <WeightDataPage key={profileId} profile={profile} backLabel={backLabel} onBack={goBack} />
+    ) : (
+      <MonthlyStatisticsPage key={profileId} profile={profile} backLabel={backLabel} onBack={goBack} />
+    );
   }
 
   /* ---------- Full exercise library (not limited by the active split) ---------- */
@@ -339,6 +365,25 @@ function ProfileScreens({
     if (!libraryExercise || !exerciseTargetsRegion(libraryExercise, libraryMuscleId, libraryRegionId)) {
       return notFound('Exercise not found', `That exercise isn’t listed under ${libraryRegion.name}.`, `Back to ${libraryRegion.name}`, () => openLibraryRegion());
     }
+    const libraryExerciseRoute = {
+      name: 'library-exercise' as const,
+      profileId,
+      muscleId: libraryMuscleId,
+      regionId: libraryRegionId,
+      exerciseId: libraryExercise.id,
+    };
+    if (route.view === 'form') {
+      return (
+        <ExerciseFormVideosPage
+          key={`${profileId}:${libraryExercise.id}:form`}
+          profile={profile}
+          group={libraryGroup}
+          region={libraryRegion}
+          exercise={libraryExercise}
+          onBack={() => navigate(libraryExerciseRoute)}
+        />
+      );
+    }
     return (
       <ExerciseDetailsPage
         key={`${profileId}:${libraryExercise.id}`}
@@ -347,6 +392,7 @@ function ProfileScreens({
         region={libraryRegion}
         exercise={libraryExercise}
         onBack={() => openLibraryRegion(libraryExercise.category)}
+        onOpenForm={() => navigate({ ...libraryExerciseRoute, view: 'form' })}
       />
     );
   }
@@ -419,6 +465,13 @@ function ProfileScreens({
     return notFound('Exercise not found', `That exercise isn’t selected under ${region.name} for this day.`, `Back to ${region.name}`, () => openRegion());
   }
 
+  const exerciseRoute = { name: 'exercise' as const, profileId, dayId, muscleId, regionId, exerciseId: exercise.id };
+  if (route.view === 'form') {
+    return (
+      <ExerciseFormVideosPage key={`${profileId}:${exercise.id}:form`} profile={profile} group={group} region={region} exercise={exercise} onBack={() => navigate(exerciseRoute)} />
+    );
+  }
+
   return (
     <ExerciseDetailsPage
       key={`${profileId}:${exercise.id}`}
@@ -427,6 +480,7 @@ function ProfileScreens({
       region={region}
       exercise={exercise}
       onBack={() => openRegion(exercise.category)}
+      onOpenForm={() => navigate({ ...exerciseRoute, view: 'form' })}
     />
   );
 }

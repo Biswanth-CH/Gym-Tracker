@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Plus, Users } from 'lucide-react';
 import { EmptyState } from '../components/EmptyState';
 import { ProfileCard } from '../components/ProfileCard';
+import { ProfileLeaderboard } from '../components/ProfileLeaderboard';
 import { ProfileModal } from '../components/ProfileModal';
 import { Toast } from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { useProfileLocks } from '../hooks/useProfileLocks';
 import { useProfileStreaks } from '../hooks/useProfileStreaks';
+import { useCardBackgrounds } from '../hooks/useCardBackgrounds';
 import type { Profile, ProfileInput } from '../types/gym';
 
 interface ProfilesPageProps {
@@ -30,6 +32,11 @@ export function ProfilesPage({
   const { toast, showToast } = useToast();
   const streaks = useProfileStreaks(profiles);
   const { isProfileLocked } = useProfileLocks();
+  const { getCardBackground } = useCardBackgrounds();
+  const profileBackground = (profileId: string) => {
+    const background = getCardBackground(profileId, 'profile');
+    return background ? { imageUrl: background.imageUrl, settings: background } : null;
+  };
 
   const editingProfile = editor.isOpen ? editor.profile : null;
   const openCreate = () => setEditor({ isOpen: true, profile: null });
@@ -57,17 +64,13 @@ export function ProfilesPage({
   return (
     <div className="page">
 
+      {profiles.length > 0 && <ProfileLeaderboard profiles={profiles} streaks={streaks} />}
       <section className="section profiles-section" aria-labelledby="profiles-heading">
         <div className="section__header">
           <div>
             <h2 id="profiles-heading" className="section__title">
-              Your Profiles
+              Profiles
             </h2>
-            <p className="section__meta">
-              {profiles.length === 0
-                ? 'No profiles yet'
-                : `${profiles.length} ${profiles.length === 1 ? 'profile' : 'profiles'}`}
-            </p>
           </div>
           {profiles.length > 0 && (
             <button type="button" className="button button--subtle" onClick={openCreate} data-testid="add-profile">
@@ -95,8 +98,9 @@ export function ProfilesPage({
               <li key={profile.id}>
                 <ProfileCard
                   profile={profile}
-                  streakDays={streaks.get(profile.id) ?? 0}
+                  streakDays={streaks.get(profile.id)?.currentStreak ?? 0}
                   isLocked={isProfileLocked(profile.id)}
+                  background={profileBackground(profile.id)}
                   onOpen={onOpenProfile}
                   onEdit={(target) => setEditor({ isOpen: true, profile: target })}
                 />
@@ -109,6 +113,7 @@ export function ProfilesPage({
       <ProfileModal
         isOpen={editor.isOpen}
         profile={editingProfile}
+        streakDays={editingProfile ? streaks.get(editingProfile.id)?.currentStreak ?? 0 : 0}
         onClose={closeEditor}
         onSave={handleSave}
         onDelete={editingProfile ? () => handleDelete(editingProfile) : undefined}

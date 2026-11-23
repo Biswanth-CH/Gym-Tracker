@@ -25,6 +25,8 @@ interface ProfileOverviewPageProps {
   onOpenConsistency: () => void;
   /** Full exercise library (not limited by the active split). */
   onOpenLibrary: () => void;
+  onOpenWeightData: () => void;
+  onOpenMonthlyStatistics: () => void;
   /** Back to the Profiles page. Keeps the Supabase session. */
   onSwitchProfile: () => void;
   onUpdateProfile: (input: ProfileInput) => Promise<void>;
@@ -38,6 +40,8 @@ export function ProfileOverviewPage({
   onOpenWeeklyPlan,
   onOpenConsistency,
   onOpenLibrary,
+  onOpenWeightData,
+  onOpenMonthlyStatistics,
   onSwitchProfile,
   onUpdateProfile,
   onDeleteProfile,
@@ -154,7 +158,13 @@ export function ProfileOverviewPage({
         </div>
       </dl>
 
-      <BodyWeightSection profile={profile} todayKey={todayKey} onToast={showToast} />
+      <BodyWeightSection
+        profile={profile}
+        todayKey={todayKey}
+        onToast={showToast}
+        onOpenWeightData={onOpenWeightData}
+        onOpenMonthlyStatistics={onOpenMonthlyStatistics}
+      />
 
       <nav className="overview-links" aria-label="Shortcuts">
         <button type="button" className="overview-link" onClick={onOpenWeeklyPlan} data-testid="overview-weekly-plan">
@@ -186,6 +196,7 @@ export function ProfileOverviewPage({
       <ProfileModal
         isOpen={editorOpen}
         profile={profile}
+        streakDays={streak}
         onClose={() => setEditorOpen(false)}
         onSave={async (input) => {
           await onUpdateProfile(input);

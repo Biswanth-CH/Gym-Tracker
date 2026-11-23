@@ -7,7 +7,6 @@ import {
   type TrackerContext,
 } from '../../utils/consistencyUtils';
 import { AttendanceCell } from './AttendanceCell';
-import { DAY_STATE_LABELS, LEGEND_ORDER, WORKOUT_DOT_LABEL } from './attendanceLabels';
 
 interface AttendanceCalendarProps {
   months: MonthInfo[];
@@ -96,18 +95,6 @@ export function AttendanceCalendar({
         </div>
       </div>
 
-      <ul className="heatmap-legend" aria-label="Legend">
-        {LEGEND_ORDER.map((state) => (
-          <li key={state}>
-            <span className={`heatmap__cell heatmap__cell--${state}`} aria-hidden="true" />
-            {state === 'future' ? 'Future / not tracked' : DAY_STATE_LABELS[state]}
-          </li>
-        ))}
-        <li>
-          <span className="heatmap__cell heatmap__cell--unmarked heatmap__cell--has-workout" aria-hidden="true" />
-          {WORKOUT_DOT_LABEL}
-        </li>
-      </ul>
     </div>
   );
 }

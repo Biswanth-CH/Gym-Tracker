@@ -197,3 +197,25 @@ export function normalizeSchedule(days: readonly CustomDayPlan[]): CustomDayPlan
     }),
   );
 }
+
+/* ---------- Phase 7: repeat a day's workout on another day ---------- */
+
+/** A training day with at least one muscle group (copying onto it replaces something). */
+export function isDayConfigured(day: Pick<CustomDayPlan, 'isRest' | 'muscleGroupIds'>): boolean {
+  return !day.isRest && day.muscleGroupIds.length > 0;
+}
+
+/**
+ * Copies the WHOLE workout configuration of `source` onto `destination`'s weekday:
+ * workout name, rest flag, muscle groups and every region / exercise selection.
+ * Selection modes are copied verbatim — ALL stays ALL (it is never expanded into today's
+ * exercise ids, so future library additions keep appearing) and an explicit empty CUSTOM
+ * list stays empty. The destination is replaced, never merged. Copying a day onto itself is refused.
+ */
+export function copyDayWorkout(days: readonly CustomDayPlan[], sourceDayId: DayId, destinationDayId: DayId): CustomDayPlan[] {
+  if (sourceDayId === destinationDayId) throw new Error('Choose a different day to copy from.');
+  const source = days.find((day) => day.dayId === sourceDayId);
+  if (!source || !days.some((day) => day.dayId === destinationDayId)) throw new Error('That day is not part of this split.');
+  const [copy] = cloneSchedule([source]);
+  return days.map((day) => (day.dayId === destinationDayId ? { ...copy, dayId: destinationDayId } : day));
+}

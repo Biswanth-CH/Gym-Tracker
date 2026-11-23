@@ -9,6 +9,7 @@ import { WorkoutSplitSelector } from '../components/workout/WorkoutSplitSelector
 import { getGenderLabel } from '../constants/profileOptions';
 import { getTodayDayId } from '../constants/workoutSchedule';
 import { useToday } from '../hooks/useToday';
+import { useCardBackgrounds } from '../hooks/useCardBackgrounds';
 import { parseDateKey } from '../utils/dateUtils';
 import { useAttendanceTracker } from '../hooks/useAttendanceTracker';
 import { useToast } from '../hooks/useToast';
@@ -32,6 +33,12 @@ export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashbo
   // Local calendar date; useToday re-checks every minute, so the highlight moves at midnight.
   const todayKey = useToday();
   const todayId = getTodayDayId(parseDateKey(todayKey));
+  // Day backgrounds belong to this profile + weekday (not to the shared split).
+  const dayBackground = (dayId: WorkoutDay['id']) => {
+    const background = getCardBackground(profile.id, dayId);
+    return background ? { imageUrl: background.imageUrl, settings: background } : null;
+  };
+  const { getCardBackground } = useCardBackgrounds();
   const { toast, showToast } = useToast();
   const { attendance, context, choose } = useAttendanceTracker(profile, showToast);
   const {
@@ -113,7 +120,7 @@ export function ProfileDashboard({ profile, onBack, onSelectDay }: ProfileDashbo
       <ul className="week-grid" aria-label="Days of the week">
         {activeDays.map((day) => (
           <li key={day.id}>
-            <DayCard day={day} isToday={day.id === todayId} onSelect={onSelectDay} />
+            <DayCard day={day} isToday={day.id === todayId} onSelect={onSelectDay} background={dayBackground(day.id)} />
           </li>
         ))}
       </ul>

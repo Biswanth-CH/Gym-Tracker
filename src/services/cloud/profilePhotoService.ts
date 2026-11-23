@@ -35,12 +35,26 @@ export async function removeProfilePhotos(paths: string[]): Promise<void> {
   ensureOk(await getSupabase().storage.from(PROFILE_PHOTO_BUCKET).remove(paths), 'Could not remove the old profile picture.');
 }
 
-/** Removes every photo stored for a profile (used when the profile is deleted). */
+/** File paths directly inside a folder (Storage lists are not recursive; folders have no id). */
+async function listFiles(folder: string): Promise<string[]> {
+  const listed = await getSupabase().storage.from(PROFILE_PHOTO_BUCKET).list(folder, { limit: 1000 });
+  const entries = (ensureOk(listed, 'Could not list profile pictures.') ?? []) as Array<{ name: string; id: string | null }>;
+  return entries.filter((entry) => entry.id !== null).map((entry) => `${folder}/${entry.name}`);
+}
+
+/** Removes every photo AND card background stored for a profile (used when the profile is deleted). */
 export async function removeAllPhotosForProfile(userId: string, profileId: string): Promise<void> {
   const folder = `${userId}/${profileId}`;
-  const listed = await getSupabase().storage.from(PROFILE_PHOTO_BUCKET).list(folder, { limit: 100 });
-  const files = (ensureOk(listed, 'Could not list profile pictures.') ?? []) as Array<{ name: string }>;
-  await removeProfilePhotos(files.map((file) => `${folder}/${file.name}`));
+  const [photos, backgrounds] = await Promise.all([listFiles(folder), listFiles(`${folder}/backgrounds`)]);
+  await removeProfilePhotos([...photos, ...backgrounds]);
+}
+
+/** Uploads a compressed card background to an exact, new path (never overwrites another file). */
+export async function uploadCardBackgroundImage(path: string, blob: Blob): Promise<void> {
+  const result = await getSupabase()
+    .storage.from(PROFILE_PHOTO_BUCKET)
+    .upload(path, blob, { contentType: blob.type || 'image/webp', upsert: false, cacheControl: '3600' });
+  ensureOk(result, 'Could not upload the background image.');
 }
 
 /** Short-lived signed URLs (private bucket). Missing / failed paths are simply left out. */

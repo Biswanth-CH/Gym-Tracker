@@ -1,5 +1,5 @@
-import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Camera, Crop as CropIcon, ImageMinus, Loader2, Trash2, UserRound } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { Camera, Crop as CropIcon, Image as ImageIcon, ImageMinus, Loader2, Trash2, UserRound } from 'lucide-react';
 import { ACCEPTED_IMAGE_TYPES, DEFAULT_GENDER, GENDER_OPTIONS, isGender } from '../constants/profileOptions';
 import { PROFILE_NAME_MAX_LENGTH } from '../constants/storageKeys';
 import type { Gender, PhotoChange, Profile, ProfileInput } from '../types/gym';
@@ -23,8 +23,12 @@ import { ImageCropper } from './ImageCropper';
 import { Modal } from './Modal';
 import { ProfileAvatar } from './ProfileAvatar';
 import { ProfileLockSettings } from './profileLock/ProfileLockSettings';
+import { CardBackgroundEditor } from './cardBackground/CardBackgroundEditor';
+import { ProfileCard } from './ProfileCard';
+import { useCardBackgrounds } from '../hooks/useCardBackgrounds';
 import { DEFAULT_PROFILE_THEME, PROFILE_THEMES } from '../constants/profileThemes';
-import { setPreviewTheme } from '../services/documentTheme';
+import { profileTileThemeStyle, setPreviewTheme } from '../services/documentTheme';
+import { deriveThemePalette, normalizeHexColor } from '../utils/themeColor';
 import type { ProfileThemeKey } from '../types/gym';
 
 interface ProfileModalProps {
@@ -39,11 +43,15 @@ interface ProfileModalProps {
    * Runs only after an explicit confirmation; rejects with a user-facing Error on failure.
    */
   onDelete?: () => Promise<void>;
+  /** Current streak, shown on the card background preview. */
+  streakDays?: number;
 }
 
-type ModalView = 'form' | 'confirm-delete';
+type ModalView = 'form' | 'confirm-delete' | 'background';
 
-export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: ProfileModalProps) {
+export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, streakDays = 0 }: ProfileModalProps) {
+  const { getCardBackground } = useCardBackgrounds();
+  const [backgroundNotice, setBackgroundNotice] = useState<string | null>(null);
   const isEditing = profile !== null;
   const inputId = useId();
   const genderId = useId();
@@ -74,6 +82,12 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
   latestWeightRef.current = latestWeightKg;
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [themeKey, setThemeKey] = useState<ProfileThemeKey>(DEFAULT_PROFILE_THEME);
+  /** Exact custom colour (#RRGGBB) or null when a preset is chosen. */
+  const [customThemeColor, setCustomThemeColor] = useState<string | null>(null);
+  /** Last custom colour picked in this dialog, so the colour input reopens on it. */
+  const [lastCustomColor, setLastCustomColor] = useState('#4F46E5');
+  const [hexText, setHexText] = useState('');
+  const customPalette = useMemo(() => (customThemeColor ? deriveThemePalette(customThemeColor) : null), [customThemeColor]);
   const [view, setView] = useState<ModalView>('form');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -103,6 +117,9 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
       setWeightText(latestWeightRef.current !== null ? formatNumber(Math.round(latestWeightRef.current * 10) / 10) : '');
       setDetailsError(null);
       setThemeKey(profile?.themeKey ?? DEFAULT_PROFILE_THEME);
+      setBackgroundNotice(null);
+      setCustomThemeColor(profile?.customThemeColor ?? null);
+      setLastCustomColor(profile?.customThemeColor ?? '#4F46E5');
       setView('form');
       setDeleting(false);
       setDeleteError(null);
@@ -121,9 +138,15 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
   // so the saved theme (or the previous one) is shown again.
   useEffect(() => {
     if (!isOpen) return;
-    setPreviewTheme(themeKey);
+    setPreviewTheme({ themeKey, customThemeColor });
     return () => setPreviewTheme(null);
-  }, [isOpen, themeKey]);
+  }, [isOpen, themeKey, customThemeColor]);
+
+  // Keep the HEX field in step with the colour input (typing a partial value doesn't reset it).
+  useEffect(() => {
+    if (customThemeColor && normalizeHexColor(hexText) !== customThemeColor) setHexText(customThemeColor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customThemeColor]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -176,7 +199,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
     try {
       // Weight first (upsert of today's entry is idempotent, so a retry after a failed profile save is safe).
       if (weightChanged && weightKg !== null) await saveBodyWeight(todayKey, weightKg, 'KG');
-      await onSave({ name, gender, trackingStartDate: trackingStart, photo, ageYears: age.value, heightCm: height.value, themeKey });
+      await onSave({ name, gender, trackingStartDate: trackingStart, photo, ageYears: age.value, heightCm: height.value, themeKey, customThemeColor });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Something went wrong. Please try again.');
     } finally {
@@ -200,7 +223,8 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
   };
 
   const confirmingDelete = view === 'confirm-delete' && isEditing;
-  const closeView = cropSource ? () => setCropSource(null) : confirmingDelete ? () => setView('form') : onClose;
+  const editingBackground = view === 'background' && isEditing && profile !== null;
+  const closeView = cropSource ? () => setCropSource(null) : confirmingDelete || editingBackground ? () => setView('form') : onClose;
 
   let title = isEditing ? 'Edit profile' : 'New profile';
   let description = isEditing ? 'Update the details for this workout space.' : 'Create a personal space to plan your training week.';
@@ -214,11 +238,36 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
     description =
       'This permanently deletes the profile and all of its attendance, workout splits, set plans, daily progress, personal records, body-weight entries and photo on every device. This can’t be undone.';
     icon = <Trash2 size={24} aria-hidden="true" />;
+  } else if (editingBackground) {
+    title = 'Customize Card Background';
+    description = 'This image appears behind this profile’s card on the Profiles page. Your profile picture stays as it is.';
+    icon = <ImageIcon size={24} aria-hidden="true" />;
   }
 
   return (
     <Modal isOpen={isOpen} onClose={closeView} placement="top" title={title} description={description} icon={icon}>
-      {confirmingDelete ? (
+      {editingBackground && profile ? (
+        <CardBackgroundEditor
+          profileId={profile.id}
+          cardKey="profile"
+          background={getCardBackground(profile.id, 'profile')}
+          renderPreview={(preview) => (
+            <ProfileCard
+              profile={profile}
+              streakDays={streakDays}
+              isLocked={false}
+              onOpen={() => undefined}
+              onEdit={() => undefined}
+              background={preview}
+              isPreview
+            />
+          )}
+          onDone={(message) => {
+            setView('form');
+            if (message) setBackgroundNotice(message);
+          }}
+        />
+      ) : confirmingDelete ? (
         <div data-testid="profile-delete-confirm">
           {deleteError && (
             <p className="field__error" role="alert">
@@ -403,24 +452,110 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete }: Pro
         <fieldset className="theme-picker" data-testid="theme-picker">
           <legend className="field__label">Colour theme</legend>
           <div className="theme-picker__options" role="radiogroup" aria-label="Colour theme">
-            {PROFILE_THEMES.map((theme) => (
-              <button
-                key={theme.key}
-                type="button"
-                role="radio"
-                aria-checked={themeKey === theme.key}
-                className={`theme-swatch${themeKey === theme.key ? ' is-selected' : ''}`}
-                data-theme={theme.key}
-                onClick={() => setThemeKey(theme.key)}
-                title={`${theme.label} – ${theme.description}`}
-                data-testid={`theme-${theme.key}`}
-              >
-                <span className="theme-swatch__dot" aria-hidden="true" />
-                <span className="theme-swatch__label">{theme.label}</span>
-              </button>
-            ))}
+            {PROFILE_THEMES.map((theme) => {
+              const isSelected = customThemeColor === null && themeKey === theme.key;
+              return (
+                <button
+                  key={theme.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  className={`theme-swatch${isSelected ? ' is-selected' : ''}`}
+                  data-theme={theme.key}
+                  onClick={() => {
+                    // Choosing a preset clears the custom colour.
+                    setThemeKey(theme.key);
+                    setCustomThemeColor(null);
+                  }}
+                  title={`${theme.label} – ${theme.description}`}
+                  data-testid={`theme-${theme.key}`}
+                >
+                  <span className="theme-swatch__dot" aria-hidden="true" />
+                  <span className="theme-swatch__label">{theme.label}</span>
+                </button>
+              );
+            })}
+            <label
+              className={`theme-swatch theme-swatch--custom${customThemeColor ? ' is-selected' : ''}`}
+              data-theme={customThemeColor ? 'custom' : undefined}
+              style={profileTileThemeStyle(customThemeColor)}
+              title="Custom colour"
+            >
+              <span className="theme-swatch__dot theme-swatch__dot--custom" aria-hidden="true" />
+              <span className="theme-swatch__label">Custom</span>
+              <input
+                type="color"
+                className="theme-swatch__color-input"
+                value={customThemeColor ?? lastCustomColor}
+                aria-label="Custom colour"
+                onChange={(event) => {
+                  const next = normalizeHexColor(event.target.value);
+                  if (next) {
+                    setCustomThemeColor(next);
+                    setLastCustomColor(next);
+                  }
+                }}
+                data-testid="theme-custom-input"
+              />
+            </label>
           </div>
+          {customThemeColor && (
+            <div className="theme-picker__custom">
+              <label className="theme-picker__hex">
+                <span>HEX</span>
+                <input
+                  className="field__input"
+                  value={hexText}
+                  maxLength={7}
+                  spellCheck={false}
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setHexText(event.target.value);
+                    const next = normalizeHexColor(event.target.value);
+                    if (next) {
+                      setCustomThemeColor(next);
+                      setLastCustomColor(next);
+                    }
+                  }}
+                  data-testid="theme-custom-hex"
+                />
+              </label>
+              {customPalette?.adjusted && (
+                <span className="photo-picker__hint" data-testid="theme-custom-adjusted">
+                  Lightened slightly on dark screens so text stays readable.
+                </span>
+              )}
+            </div>
+          )}
         </fieldset>
+
+        {isEditing && profile && (
+          <section className="card-bg-setting" aria-label="Card background" data-testid="profile-card-background-setting">
+            <div className="card-bg-setting__text">
+              <span className="field__label">Card background</span>
+              <span className="photo-picker__hint">
+                {getCardBackground(profile.id, 'profile') ? 'Custom image on the Profiles page card.' : 'Default card design.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="button button--ghost button--compact"
+              onClick={() => {
+                setBackgroundNotice(null);
+                setView('background');
+              }}
+              disabled={saving}
+              data-testid="profile-customize-background"
+            >
+              <ImageIcon size={16} aria-hidden="true" /> Customize Card Background
+            </button>
+            {backgroundNotice && (
+              <p className="inline-success" role="status" data-testid="profile-background-notice">
+                {backgroundNotice}
+              </p>
+            )}
+          </section>
+        )}
 
         <div className="profile-details-row">
           <div className="field">

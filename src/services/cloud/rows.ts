@@ -1,5 +1,8 @@
 import { DEFAULT_GENDER, isGender } from '../../constants/profileOptions';
 import { DEFAULT_PROFILE_THEME, isProfileThemeKey } from '../../constants/profileThemes';
+import { normalizeHexColor } from '../../utils/themeColor';
+import { isFormVideoPlatform } from '../../utils/formVideoLinks';
+import { isCardBackgroundKey, normalizeBackgroundSettings } from '../../utils/cardBackground';
 import type {
   AttendanceStatus,
   BodyWeightEntry,
@@ -12,6 +15,8 @@ import type {
   WeightUnit,
   WorkoutPlan,
   WorkoutSplitTemplate,
+  ExerciseFormVideo,
+  CardBackground,
 } from '../../types/gym';
 import { isPlanType, parseCustomSchedule } from '../../utils/workoutPlan';
 
@@ -29,6 +34,8 @@ export interface ProfileRow {
   height_cm?: number | string | null;
   /** Phase 6 column: absent until the Phase 6 migration runs (then defaults to lime). */
   theme_key?: string | null;
+  /** Phase 7 column: absent until the Phase 7 migration runs. */
+  custom_theme_color?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -100,6 +107,31 @@ export interface SplitTemplateRow {
   updated_at: string;
 }
 
+/** Phase 7 form-reference video (`profile_exercise_form_videos`). */
+export interface FormVideoRow {
+  id: string;
+  profile_id: string;
+  exercise_id: string;
+  video_name: string;
+  video_url: string;
+  platform: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Phase 7 card background (`profile_card_backgrounds`). */
+export interface CardBackgroundRow {
+  id: string;
+  profile_id: string;
+  card_key: string;
+  storage_path: string;
+  dim_percent: number;
+  blur_px: number;
+  focal_x: number;
+  focal_y: number;
+  updated_at: string;
+}
+
 export interface BodyWeightRow {
   id: string;
   profile_id: string;
@@ -117,7 +149,9 @@ export type CloudTable =
   | 'exercise_personal_records'
   | 'profile_workout_plans'
   | 'body_weight_entries'
-  | 'account_workout_split_templates';
+  | 'account_workout_split_templates'
+  | 'profile_exercise_form_videos'
+  | 'profile_card_backgrounds';
 
 export const CLOUD_TABLES: readonly CloudTable[] = [
   'gym_profiles',
@@ -129,6 +163,8 @@ export const CLOUD_TABLES: readonly CloudTable[] = [
   'profile_workout_plans',
   'body_weight_entries',
   'account_workout_split_templates',
+  'profile_exercise_form_videos',
+  'profile_card_backgrounds',
 ];
 
 /* ---------- JSON column parsing (defensive: rows are external data) ---------- */
@@ -188,6 +224,7 @@ export function toProfile(row: ProfileRow, photoUrl: string | null): Profile {
     ageYears: toOptionalNumber(row.age_years),
     heightCm: toOptionalNumber(row.height_cm),
     themeKey: isProfileThemeKey(row.theme_key) ? row.theme_key : DEFAULT_PROFILE_THEME,
+    customThemeColor: normalizeHexColor(row.custom_theme_color),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -265,5 +302,32 @@ export function toPersonalRecord(row: RecordRow): PersonalRecord | null {
     sets: best.sets,
     notes: row.notes,
     updatedAt: row.updated_at,
+  };
+}
+
+export function toFormVideo(row: FormVideoRow): ExerciseFormVideo | null {
+  if (!isFormVideoPlatform(row.platform) || !row.video_name?.trim() || !/^https?:\/\//i.test(row.video_url ?? '')) return null;
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    exerciseId: row.exercise_id,
+    videoName: row.video_name.trim(),
+    videoUrl: row.video_url,
+    platform: row.platform,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function toCardBackground(row: CardBackgroundRow, imageUrl: string | null): CardBackground | null {
+  if (!isCardBackgroundKey(row.card_key) || typeof row.storage_path !== 'string' || !row.storage_path.includes('/backgrounds/')) return null;
+  return {
+    id: row.id,
+    profileId: row.profile_id,
+    cardKey: row.card_key,
+    storagePath: row.storage_path,
+    imageUrl,
+    updatedAt: row.updated_at,
+    ...normalizeBackgroundSettings({ dimPercent: row.dim_percent, blurPx: row.blur_px, focalX: row.focal_x, focalY: row.focal_y }),
   };
 }

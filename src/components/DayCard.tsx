@@ -1,26 +1,28 @@
+import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { WORKOUT_CATEGORIES, getDayMuscleLabels } from '../constants/workoutSchedule';
-import type { WorkoutDay } from '../types/gym';
+import type { CardBackgroundSettings, WorkoutDay } from '../types/gym';
+import { CardBackgroundLayers } from './cardBackground/CardBackgroundLayers';
 import { WorkoutIcon } from './WorkoutIcon';
 
 interface DayCardProps {
   day: WorkoutDay;
   isToday: boolean;
   onSelect: (day: WorkoutDay) => void;
+  /** Phase 7: this profile's background for this weekday (image URL + appearance). */
+  background?: { imageUrl: string | null; settings: CardBackgroundSettings } | null;
+  /** Renders a non-interactive copy (Customize Card Background preview). */
+  isPreview?: boolean;
 }
 
-export function DayCard({ day, isToday, onSelect }: DayCardProps) {
+export function DayCard({ day, isToday, onSelect, background = null, isPreview = false }: DayCardProps) {
   const category = WORKOUT_CATEGORIES[day.category];
   const categoryLabel = day.title ?? category.label;
-
-  return (
-    <button
-      type="button"
-      className={`day-card${isToday ? ' day-card--today' : ''}`}
-      data-category={day.category}
-      onClick={() => onSelect(day)}
-      aria-label={`${day.dayName}: ${categoryLabel}, ${getDayMuscleLabels(day).join(', ')}${isToday ? ' (today)' : ''}`}
-    >
+  const hasBackground = Boolean(background?.imageUrl);
+  const className = `day-card${isToday ? ' day-card--today' : ''}${hasBackground ? ' has-card-background' : ''}`;
+  const content: ReactNode = (
+    <>
+      {background?.imageUrl && <CardBackgroundLayers imageUrl={background.imageUrl} settings={background.settings} />}
       <span className="day-card__top">
         <span className="category-icon">
           <WorkoutIcon category={day.category} size={18} />
@@ -33,6 +35,27 @@ export function DayCard({ day, isToday, onSelect }: DayCardProps) {
       <span className="day-card__chevron" aria-hidden="true">
         <ChevronRight size={18} />
       </span>
+    </>
+  );
+
+  if (isPreview) {
+    return (
+      <div className={className} data-category={day.category} data-testid="day-card-preview">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      data-category={day.category}
+      onClick={() => onSelect(day)}
+      aria-label={`${day.dayName}: ${categoryLabel}, ${getDayMuscleLabels(day).join(', ')}${isToday ? ' (today)' : ''}`}
+      data-testid={`day-card-${day.id}`}
+    >
+      {content}
     </button>
   );
 }

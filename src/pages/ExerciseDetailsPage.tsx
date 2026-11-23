@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, ListChecks, Target, Trophy, Wrench } from 'lucide-react';
+import { AlertTriangle, ListChecks, Target, Trophy, Video, Wrench } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
 import { Toast } from '../components/Toast';
 import { DIFFICULTY_LABEL, formatRecommendation } from '../components/workout/ExerciseCard';
@@ -22,6 +22,8 @@ interface ExerciseDetailsPageProps {
   region: MuscleRegion;
   exercise: LibraryExercise;
   onBack: () => void;
+  /** Opens this variation's Form reference videos page. */
+  onOpenForm: () => void;
 }
 
 function prButtonLabel(exercise: LibraryExercise, record: PersonalRecord | null): string {
@@ -33,7 +35,7 @@ function prButtonLabel(exercise: LibraryExercise, record: PersonalRecord | null)
   return `PR: ${amount}`;
 }
 
-export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }: ExerciseDetailsPageProps) {
+export function ExerciseDetailsPage({ profile, group, region, exercise, onBack, onOpenForm }: ExerciseDetailsPageProps) {
   const todayKey = useToday();
   const { toast, showToast } = useToast();
   const { isSelected, select, deselect } = useExerciseSelections(profile.id);
@@ -83,6 +85,9 @@ export function ExerciseDetailsPage({ profile, group, region, exercise, onBack }
               onClick={() => setShowTarget((open) => !open)}
             >
               <Target size={14} aria-hidden="true" /> Target Muscles
+            </button>
+            <button type="button" className="button button--ghost button--compact" onClick={onOpenForm} data-testid="open-form-videos">
+              <Video size={14} aria-hidden="true" /> Form
             </button>
             <button type="button" className="button button--ghost button--compact" onClick={() => setPrRequest((count) => count + 1)} data-testid="pr-open">
               <Trophy size={14} aria-hidden="true" /> {prButtonLabel(exercise, record)}
