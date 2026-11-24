@@ -9,6 +9,7 @@ import type { ExerciseCategory, Route } from '../types/gym';
  *
  *   #/
  *   #/profile/<id>
+ *   #/profile/<id>/today         (today's attendance + weight)
  *   #/profile/<id>/consistency
  *   #/profile/<id>/overview
  *   #/profile/<id>/(overview|consistency)/(weight-data|monthly-statistics)
@@ -38,6 +39,7 @@ export function parseHash(hash: string): Route {
   if (s[0] !== 'profile' || !s[1]) return { name: 'profiles' };
   const profileId = s[1];
 
+  if (s[2] === 'today') return { name: 'today', profileId };
   if (s[2] === 'consistency' || s[2] === 'overview') {
     const from = s[2];
     if (s[3] === 'weight-data') return { name: 'weight-data', profileId, from };
@@ -89,6 +91,8 @@ export function routeToHash(route: Route): string {
       return '#/';
     case 'dashboard':
       return `#/profile/${enc(route.profileId)}`;
+    case 'today':
+      return `#/profile/${enc(route.profileId)}/today`;
     case 'consistency':
       return `#/profile/${enc(route.profileId)}/consistency`;
     case 'overview':

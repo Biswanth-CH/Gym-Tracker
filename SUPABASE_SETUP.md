@@ -180,6 +180,79 @@ people sharing one account, not a replacement for the account password.
 Form videos only store links. Previews use YouTube's privacy embed (no autoplay) and Instagram's
 official embed (loaded only when tapped); other links show as a plain link card.
 
+## 8f. Phase 8 database update (you — required before publishing Phase 8)
+1. Make sure the Phase 7 migration (§8e) has been applied (the Phase 8 file stops with a clear message otherwise).
+2. *(Recommended)* Back up first (**Database → Backups**).
+3. Open **SQL Editor → New query**, paste the **whole** file
+   `supabase/migrations/20261125_phase8_shared_videos_split_backgrounds.sql`, and click **Run**.
+4. It is additive and safe to run twice. It:
+   - adds `gym_profiles.show_photo_on_card` (default `true`: every card keeps its picture);
+   - adds `zoom_percent` (100–300 %, default 100) to `profile_card_backgrounds`;
+   - creates `account_split_day_backgrounds` (one row per **shared split + weekday**, with image path, dim,
+     blur, zoom and position). RLS: only the split's owner account can read / write, and the path must be
+     inside the caller's own `<user>/` folder. Each existing Phase 7 weekday background is copied to that
+     profile's active (or remembered) custom split, **reusing the same image file**;
+   - creates `exercise_form_videos` (shared by every signed-in account, per exercise variation; one copy per
+     variation + URL) and copies every Phase 7 profile video into it (same id, name, URL, platform and
+     dates for the first copy; the adding account becomes `created_by`);
+   - creates `profile_hidden_form_videos` (private per-profile "Hide", RLS `owns_gym_profile`);
+   - adds the three new tables to Realtime; keeps `profile_exercise_form_videos` and the Phase 7 weekday rows
+     untouched (no longer read by the app — they can be dropped later once you are happy);
+   - records its one-time copies in `phase8_migration_log`, so re-running it never re-creates something you deleted.
+5. **Who can do what with shared form videos:** any signed-in user can read and add; only the account that
+   added a video can edit or delete it (the app shows Edit / Delete only on your own videos, after a warning
+   that it affects everyone); `anon` has no access. Note: if sign-ups are open on your project, any new account
+   can add videos — turn off public sign-ups (**Authentication → Providers → Email → Allow new users**) if
+   only people you know use GymTrack.
+6. **Storage: no change needed.** New split backgrounds go to the existing private `gym-profile-photos`
+   bucket under `<user>/splits/backgrounds/`; the existing owner-folder policies already cover it.
+   New uploads are sent with `Cache-Control: max-age=31536000` (files are never overwritten — every upload
+   has a new path); files uploaded earlier keep their 1-hour header and still benefit from URL reuse.
+7. Check (read-only):
+   ```sql
+   select column_name from information_schema.columns where table_name = 'gym_profiles' and column_name = 'show_photo_on_card';
+   select column_name from information_schema.columns where table_name = 'profile_card_backgrounds' and column_name = 'zoom_percent';
+   select count(*) from public.account_split_day_backgrounds;   -- copied weekday backgrounds
+   select count(*) from public.exercise_form_videos;            -- ≤ profile_exercise_form_videos (same link per variation merged)
+   select count(*) from public.profile_exercise_form_videos;    -- unchanged
+   select relname from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and not relrowsecurity;  -- no rows
+   ```
+8. Then publish the new `docs/` build.
+
+## 8g. Phase 8b database update — background gallery (you — required before publishing Phase 8b)
+1. Make sure the Phase 8 migration (§8f) has been applied (8b stops with a clear message otherwise).
+2. *(Recommended)* Back up first.
+3. In **SQL Editor**, run the whole file `supabase/migrations/20261126_phase8b_background_gallery.sql`. It is additive and safe to run twice. It:
+   - creates `account_background_images` (one row per uploaded background: account, **uploading profile**, path). Every profile of the account can read it; inserts must name a profile of the account and a file in that profile's own `backgrounds/` folder; there is **no** UPDATE / DELETE grant;
+   - registers every image already used by a profile card or split day (uploader = the profile whose folder holds it; split-folder images → the split's creating profile, else the account's oldest profile). No background row or file is changed;
+   - lets profile cards and split days point at **any gallery image of the account** (so a profile can use another profile's image by reference), and only at gallery images;
+   - adds `delete_background_image(image, acting profile)` (SECURITY DEFINER): only the uploading profile may delete (images of a deleted profile: any profile of the account), never while a card or split day uses the image;
+   - **changes two Storage policies** on `gym-profile-photos`: `gym_photos_update_own` and `gym_photos_delete_own` keep the owner-folder rule and additionally refuse files that are still in the gallery or used by a card / split day. Select / insert are unchanged; avatars behave as before;
+   - adds the gallery to Realtime.
+   The Phase 7 and Phase 8 files now skip their older card / split policies once the gallery exists, so re-running them never weakens 8b.
+4. Check (read-only):
+   ```sql
+   select count(*) from public.account_background_images;
+   select count(*) from (select storage_path from public.profile_card_backgrounds union select storage_path from public.account_split_day_backgrounds) used
+     where storage_path not in (select storage_path from public.account_background_images);   -- 0
+   select policyname, cmd from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'gym_photos%';
+   ```
+5. Then publish the new `docs/` build.
+
+**About "only the uploader can delete":** profiles are not separate logins; all profiles of an account share one Supabase sign-in. The database checks that the acting profile is the uploader *and* belongs to the signed-in account, and it always blocks other accounts and images still in use. Someone signed in to the same account could still claim to be the uploading profile in a hand-made request; true per-profile enforcement would need per-profile sign-in.
+
+## 8h. Phase 8c database update — deleting images that are in use (you)
+1. Make sure the Phase 8b migration (§8g) has been applied.
+2. In **SQL Editor**, run the whole file `supabase/migrations/20261127_phase8c_background_delete_cleanup.sql`. It only replaces the function `delete_background_image`; no table, policy or data changes; safe to re-run.
+3. New behaviour: the uploader can delete an image even while it is used. In **one transaction** the function checks that the image belongs to the signed-in account, that the acting profile belongs to the account and is the uploader, then removes every profile-card and split-day background using the image (those cards return to their default look) and the gallery row. The app then deletes the Storage file (allowed only now, by the unchanged 8b storage policy). If any database step fails, nothing changes and the file is kept. If only the file deletion fails, the file is queued in the browser and retried automatically the next time the gallery opens; nothing references it, so it is never shown.
+4. Check (read-only):
+   ```sql
+   select prosrc like '%for update%' as new_version from pg_proc where proname = 'delete_background_image';  -- true
+   ```
+5. If you ever re-run the Phase 8b file after this, run this file again (8b contains the older refuse-while-in-use function).
+
+The same limitation as §8g applies: profiles share one sign-in, so "acting profile = uploader" is checked within the account; other accounts can never delete.
+
 ## 9. Realtime (check)
 `schema.sql` already adds the tables to Realtime. To confirm:
 
@@ -190,6 +263,8 @@ official embed (loaded only when tapped); other links show as a plain link card.
    - `account_workout_split_templates`
    - `profile_exercise_form_videos` (Phase 7)
    - `profile_card_backgrounds` (Phase 7)
+   - `account_split_day_backgrounds`, `exercise_form_videos`, `profile_hidden_form_videos` (Phase 8)
+   - `account_background_images` (Phase 8b)
    - `gym_profiles`
    - `attendance_records`
    - `daily_exercise_selections`

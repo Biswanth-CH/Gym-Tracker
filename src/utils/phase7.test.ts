@@ -148,7 +148,7 @@ describe('form video links', () => {
   });
 
   it('maps rows defensively', () => {
-    const row = { id: 'v', profile_id: 'p', exercise_id: 'e', video_name: ' Cue ', video_url: 'https://a.com/v', platform: 'OTHER', created_at: 't', updated_at: 't' };
+    const row = { id: 'v', created_by: 'u', exercise_id: 'e', video_name: ' Cue ', video_url: 'https://a.com/v', platform: 'OTHER', created_at: 't', updated_at: 't' };
     expect(toFormVideo(row)).toMatchObject({ videoName: 'Cue', platform: 'OTHER' });
     expect(toFormVideo({ ...row, platform: 'TIKTOK' })).toBeNull();
     expect(toFormVideo({ ...row, video_url: 'javascript:alert(1)' })).toBeNull();

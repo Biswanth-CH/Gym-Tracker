@@ -26,6 +26,7 @@ import { ProfileLockSettings } from './profileLock/ProfileLockSettings';
 import { CardBackgroundEditor } from './cardBackground/CardBackgroundEditor';
 import { ProfileCard } from './ProfileCard';
 import { useCardBackgrounds } from '../hooks/useCardBackgrounds';
+import { cardBackgroundService } from '../services/cloud/cardBackgroundService';
 import { DEFAULT_PROFILE_THEME, PROFILE_THEMES } from '../constants/profileThemes';
 import { profileTileThemeStyle, setPreviewTheme } from '../services/documentTheme';
 import { deriveThemePalette, normalizeHexColor } from '../utils/themeColor';
@@ -84,6 +85,8 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
   const [themeKey, setThemeKey] = useState<ProfileThemeKey>(DEFAULT_PROFILE_THEME);
   /** Exact custom colour (#RRGGBB) or null when a preset is chosen. */
   const [customThemeColor, setCustomThemeColor] = useState<string | null>(null);
+  /** Phase 8: picture shown on the Profiles page card (the photo itself is never deleted by this). */
+  const [showPhotoOnCard, setShowPhotoOnCard] = useState(true);
   /** Last custom colour picked in this dialog, so the colour input reopens on it. */
   const [lastCustomColor, setLastCustomColor] = useState('#4F46E5');
   const [hexText, setHexText] = useState('');
@@ -119,6 +122,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
       setThemeKey(profile?.themeKey ?? DEFAULT_PROFILE_THEME);
       setBackgroundNotice(null);
       setCustomThemeColor(profile?.customThemeColor ?? null);
+      setShowPhotoOnCard(profile?.showPhotoOnCard ?? true);
       setLastCustomColor(profile?.customThemeColor ?? '#4F46E5');
       setView('form');
       setDeleting(false);
@@ -199,7 +203,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
     try {
       // Weight first (upsert of today's entry is idempotent, so a retry after a failed profile save is safe).
       if (weightChanged && weightKg !== null) await saveBodyWeight(todayKey, weightKg, 'KG');
-      await onSave({ name, gender, trackingStartDate: trackingStart, photo, ageYears: age.value, heightCm: height.value, themeKey, customThemeColor });
+      await onSave({ name, gender, trackingStartDate: trackingStart, photo, ageYears: age.value, heightCm: height.value, themeKey, customThemeColor, showPhotoOnCard });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Something went wrong. Please try again.');
     } finally {
@@ -224,6 +228,7 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
 
   const confirmingDelete = view === 'confirm-delete' && isEditing;
   const editingBackground = view === 'background' && isEditing && profile !== null;
+  const profileBackground = profile ? getCardBackground(profile.id, 'profile') : null;
   const closeView = cropSource ? () => setCropSource(null) : confirmingDelete || editingBackground ? () => setView('form') : onClose;
 
   let title = isEditing ? 'Edit profile' : 'New profile';
@@ -248,12 +253,11 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
     <Modal isOpen={isOpen} onClose={closeView} placement="top" title={title} description={description} icon={icon}>
       {editingBackground && profile ? (
         <CardBackgroundEditor
-          profileId={profile.id}
-          cardKey="profile"
-          background={getCardBackground(profile.id, 'profile')}
+          actingProfileId={profile.id}
+          background={profileBackground ? { storagePath: profileBackground.storagePath, imageUrl: profileBackground.imageUrl, settings: profileBackground } : null}
           renderPreview={(preview) => (
             <ProfileCard
-              profile={profile}
+              profile={{ ...profile, showPhotoOnCard }}
               streakDays={streakDays}
               isLocked={false}
               onOpen={() => undefined}
@@ -262,10 +266,17 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
               isPreview
             />
           )}
-          onDone={(message) => {
+          onSave={async (image, settings) => {
+            await cardBackgroundService.save({ profileId: profile.id, cardKey: 'profile', storagePath: image.storagePath, settings, existing: profileBackground });
             setView('form');
-            if (message) setBackgroundNotice(message);
+            setBackgroundNotice('Card background saved');
           }}
+          onRemove={async () => {
+            if (profileBackground) await cardBackgroundService.remove(profileBackground);
+            setView('form');
+            setBackgroundNotice('Card background removed');
+          }}
+          onCancel={() => setView('form')}
         />
       ) : confirmingDelete ? (
         <div data-testid="profile-delete-confirm">
@@ -358,6 +369,15 @@ export function ProfileModal({ isOpen, profile, onClose, onSave, onDelete, strea
               )}
             </div>
             <span className="photo-picker__hint">JPG, PNG or WebP</span>
+            <label className="check-row photo-picker__card-toggle">
+              <input
+                type="checkbox"
+                checked={!showPhotoOnCard}
+                onChange={(event) => setShowPhotoOnCard(!event.target.checked)}
+                data-testid="profile-hide-card-photo"
+              />
+              <span className="check-row__label">Hide picture on the profile card</span>
+            </label>
             <input
               ref={fileInputRef}
               className="visually-hidden"

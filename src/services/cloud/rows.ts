@@ -2,7 +2,7 @@ import { DEFAULT_GENDER, isGender } from '../../constants/profileOptions';
 import { DEFAULT_PROFILE_THEME, isProfileThemeKey } from '../../constants/profileThemes';
 import { normalizeHexColor } from '../../utils/themeColor';
 import { isFormVideoPlatform } from '../../utils/formVideoLinks';
-import { isCardBackgroundKey, normalizeBackgroundSettings } from '../../utils/cardBackground';
+import { isCardBackgroundKey, isDayId, normalizeBackgroundSettings } from '../../utils/cardBackground';
 import type {
   AttendanceStatus,
   BodyWeightEntry,
@@ -17,6 +17,8 @@ import type {
   WorkoutSplitTemplate,
   ExerciseFormVideo,
   CardBackground,
+  SplitDayBackground,
+  BackgroundImage,
 } from '../../types/gym';
 import { isPlanType, parseCustomSchedule } from '../../utils/workoutPlan';
 
@@ -36,6 +38,8 @@ export interface ProfileRow {
   theme_key?: string | null;
   /** Phase 7 column: absent until the Phase 7 migration runs. */
   custom_theme_color?: string | null;
+  /** Phase 8 column: absent until the Phase 8 migration runs (then defaults to true). */
+  show_photo_on_card?: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -107,10 +111,10 @@ export interface SplitTemplateRow {
   updated_at: string;
 }
 
-/** Phase 7 form-reference video (`profile_exercise_form_videos`). */
+/** Phase 8 shared form-reference video (`exercise_form_videos`). */
 export interface FormVideoRow {
   id: string;
-  profile_id: string;
+  created_by: string | null;
   exercise_id: string;
   video_name: string;
   video_url: string;
@@ -127,9 +131,42 @@ export interface CardBackgroundRow {
   storage_path: string;
   dim_percent: number;
   blur_px: number;
+  /** Phase 8 column: absent until the Phase 8 migration runs. */
+  zoom_percent?: number | null;
   focal_x: number;
   focal_y: number;
   updated_at: string;
+}
+
+/** Phase 8 weekday background of a shared split (`account_split_day_backgrounds`). */
+export interface SplitBackgroundRow {
+  id: string;
+  split_id: string;
+  day_id: string;
+  storage_path: string;
+  dim_percent: number;
+  blur_px: number;
+  zoom_percent: number;
+  focal_x: number;
+  focal_y: number;
+  updated_at: string;
+}
+
+/** Phase 8b gallery image (`account_background_images`). */
+export interface BackgroundImageRow {
+  id: string;
+  owner_id: string;
+  uploader_profile_id: string | null;
+  storage_path: string;
+  created_at: string;
+}
+
+/** Phase 8 per-profile hidden shared video (`profile_hidden_form_videos`). */
+export interface HiddenFormVideoRow {
+  id: string;
+  profile_id: string;
+  video_id: string;
+  created_at: string;
 }
 
 export interface BodyWeightRow {
@@ -150,8 +187,11 @@ export type CloudTable =
   | 'profile_workout_plans'
   | 'body_weight_entries'
   | 'account_workout_split_templates'
-  | 'profile_exercise_form_videos'
-  | 'profile_card_backgrounds';
+  | 'exercise_form_videos'
+  | 'profile_hidden_form_videos'
+  | 'profile_card_backgrounds'
+  | 'account_split_day_backgrounds'
+  | 'account_background_images';
 
 export const CLOUD_TABLES: readonly CloudTable[] = [
   'gym_profiles',
@@ -163,8 +203,11 @@ export const CLOUD_TABLES: readonly CloudTable[] = [
   'profile_workout_plans',
   'body_weight_entries',
   'account_workout_split_templates',
-  'profile_exercise_form_videos',
+  'exercise_form_videos',
+  'profile_hidden_form_videos',
   'profile_card_backgrounds',
+  'account_split_day_backgrounds',
+  'account_background_images',
 ];
 
 /* ---------- JSON column parsing (defensive: rows are external data) ---------- */
@@ -225,6 +268,7 @@ export function toProfile(row: ProfileRow, photoUrl: string | null): Profile {
     heightCm: toOptionalNumber(row.height_cm),
     themeKey: isProfileThemeKey(row.theme_key) ? row.theme_key : DEFAULT_PROFILE_THEME,
     customThemeColor: normalizeHexColor(row.custom_theme_color),
+    showPhotoOnCard: row.show_photo_on_card !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -309,7 +353,7 @@ export function toFormVideo(row: FormVideoRow): ExerciseFormVideo | null {
   if (!isFormVideoPlatform(row.platform) || !row.video_name?.trim() || !/^https?:\/\//i.test(row.video_url ?? '')) return null;
   return {
     id: row.id,
-    profileId: row.profile_id,
+    createdBy: row.created_by ?? null,
     exerciseId: row.exercise_id,
     videoName: row.video_name.trim(),
     videoUrl: row.video_url,
@@ -328,6 +372,24 @@ export function toCardBackground(row: CardBackgroundRow, imageUrl: string | null
     storagePath: row.storage_path,
     imageUrl,
     updatedAt: row.updated_at,
-    ...normalizeBackgroundSettings({ dimPercent: row.dim_percent, blurPx: row.blur_px, focalX: row.focal_x, focalY: row.focal_y }),
+    ...normalizeBackgroundSettings({ dimPercent: row.dim_percent, blurPx: row.blur_px, zoomPercent: row.zoom_percent, focalX: row.focal_x, focalY: row.focal_y }),
+  };
+}
+
+export function toBackgroundImage(row: BackgroundImageRow, imageUrl: string | null): BackgroundImage | null {
+  if (typeof row.storage_path !== 'string' || !row.storage_path.includes('/backgrounds/')) return null;
+  return { id: row.id, uploaderProfileId: row.uploader_profile_id ?? null, storagePath: row.storage_path, imageUrl, createdAt: row.created_at };
+}
+
+export function toSplitBackground(row: SplitBackgroundRow, imageUrl: string | null): SplitDayBackground | null {
+  if (!isDayId(row.day_id) || typeof row.storage_path !== 'string' || !row.storage_path.includes('/backgrounds/')) return null;
+  return {
+    id: row.id,
+    splitId: row.split_id,
+    dayId: row.day_id,
+    storagePath: row.storage_path,
+    imageUrl,
+    updatedAt: row.updated_at,
+    ...normalizeBackgroundSettings({ dimPercent: row.dim_percent, blurPx: row.blur_px, zoomPercent: row.zoom_percent, focalX: row.focal_x, focalY: row.focal_y }),
   };
 }

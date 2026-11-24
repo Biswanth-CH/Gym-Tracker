@@ -8,7 +8,8 @@ import { isValidDateKey, toDateKey } from '../../utils/dateUtils';
 import { normalizeHeightCm, validateProfileDetails } from '../../utils/profileDetails';
 import { normalizeName, validateProfileName } from '../../utils/profileUtils';
 import { CloudError, ensureOk, isMissingColumnError, toCloudError } from './cloudErrors';
-import { dataUrlToBlob, removeAllPhotosForProfile, removeProfilePhotos, uploadProfilePhoto } from './profilePhotoService';
+import { removeFilesOfDeletedProfile } from './imageReferences';
+import { dataUrlToBlob, removeProfilePhotos, uploadProfilePhoto } from './profilePhotoService';
 import type { ProfileRow } from './rows';
 
 /** Profiles owned by the signed-in account (`gym_profiles`). */
@@ -41,13 +42,15 @@ function profileDetailChanges(input: ProfileInput, current?: Profile): Record<st
   // Phase 7 custom colour: null clears it (a preset is used again).
   const customThemeColor = normalizeHexColor(input.customThemeColor);
   if (customThemeColor !== (current?.customThemeColor ?? null)) changes.custom_theme_color = customThemeColor;
+  // Phase 8 card-picture visibility: sent only when it differs (the column defaults to true).
+  if (input.showPhotoOnCard !== (current?.showPhotoOnCard ?? true)) changes.show_photo_on_card = input.showPhotoOnCard;
   return changes;
 }
 
 function duplicateNameGuard(error: unknown): never {
   if (isMissingColumnError(error)) {
     throw new CloudError(
-      'Age, height, colour themes and custom colours need the latest database updates. Run the Phase 5, 6 and 7 SQL migrations in Supabase, then try again.',
+      'Age, height, colour themes, custom colours and hiding the card picture need the latest database updates. Run the Phase 5, 6, 7 and 8 SQL migrations in Supabase, then try again.',
       'validation',
     );
   }
@@ -126,5 +129,5 @@ export async function updateProfile(userId: string, profile: Profile, input: Pro
 export async function deleteProfile(userId: string, profileId: string): Promise<void> {
   ensureOk(await getSupabase().from('gym_profiles').delete().eq('id', profileId), 'Could not delete the profile.');
   cloudStore.applyProfileDeleted(profileId);
-  await removeAllPhotosForProfile(userId, profileId).catch(() => undefined);
+  await removeFilesOfDeletedProfile(userId, profileId).catch(() => undefined);
 }

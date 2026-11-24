@@ -1,14 +1,18 @@
 import { useEffect, useId, useState } from 'react';
-import { CheckCircle2, ChevronDown, Copy, Search } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Copy, Image as ImageIcon, Search } from 'lucide-react';
 import { EXERCISES_BY_ID } from '../../constants/exerciseLibrary';
 import { MUSCLE_GROUPS, MUSCLE_GROUPS_BY_ID } from '../../constants/muscleGroups';
 import { WEEKLY_SCHEDULE } from '../../constants/workoutSchedule';
 import { errorMessage } from '../../services/cloud/cloudErrors';
 import type { CustomDayPlan, DayId, MuscleGroupId } from '../../types/gym';
+import { imageUrlOf, type DayBackgroundDraft, type SplitBackgroundDrafts } from '../../utils/splitBackgrounds';
+import { CardBackgroundEditor } from '../cardBackground/CardBackgroundEditor';
+import { DayCard } from '../DayCard';
 import {
   SPLIT_NAME_MAX_LENGTH,
   cloneSchedule,
   copyDayWorkout,
+  customDayToWorkoutDay,
   isDayConfigured,
   normalizeSchedule,
   validateCustomSchedule,
@@ -36,18 +40,25 @@ interface SplitEditorProps {
   isNameTaken: (splitName: string) => boolean;
   /** Shown in edit mode: how many profiles use this shared split. */
   sharedProfileCount?: number;
+  /** Phase 8: the split's weekly card backgrounds (gallery references; empty for a new split). */
+  backgrounds?: SplitBackgroundDrafts;
+  /** Profile using the editor: gallery uploads belong to it (Phase 8b). */
+  actingProfileId: string;
   onClose: () => void;
-  onSave: (splitName: string, days: CustomDayPlan[]) => Promise<void>;
+  /** Saves the split, then its background drafts (gallery references only, nothing re-uploaded). */
+  onSave: (splitName: string, days: CustomDayPlan[], backgrounds: SplitBackgroundDrafts) => Promise<void>;
 }
+
+const NO_BACKGROUNDS: SplitBackgroundDrafts = {};
 
 const CATEGORY_TAG = { MACHINE: 'Machine', ALTERNATIVE: 'Alt' } as const;
 
 /**
- * Seven days × three levels: Muscle Group → Target Region → Exercise Variation.
- * Groups and regions are accordions (collapsed by default), so the full exercise library is
- * never rendered at once. All selection rules live in utils/workoutSelection.ts.
+ * Seven collapsible days (all collapsed at first; one open at a time, drafts kept while
+ * switching) × three levels: Muscle Group → Target Region → Exercise Variation. Groups and
+ * regions are accordions too, so the full exercise library is never rendered at once. All selection rules live in utils/workoutSelection.ts.
  */
-export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, sharedProfileCount = 0, onClose, onSave }: SplitEditorProps) {
+export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, sharedProfileCount = 0, backgrounds = NO_BACKGROUNDS, actingProfileId, onClose, onSave }: SplitEditorProps) {
   const nameId = useId();
   const [name, setName] = useState(splitName);
   const [draft, setDraft] = useState<CustomDayPlan[]>(() => cloneSchedule(days));
@@ -55,10 +66,15 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
   const [saving, setSaving] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(new Set());
   const [searchByGroupKey, setSearchByGroupKey] = useState<Record<string, string>>({});
-  /** "Copy From Another Day" panel: which day is being filled, and from where. */
+  /** "Copy Workouts" panel: which day is being filled, and from where. */
   const [copyDestinationDayId, setCopyDestinationDayId] = useState<DayId | null>(null);
   const [copySourceDayId, setCopySourceDayId] = useState<DayId | null>(null);
   const [copyNotice, setCopyNotice] = useState<{ dayId: DayId; message: string; tone: 'success' | 'error' } | null>(null);
+  /** Phase 8 weekly card backgrounds: drafts until the split is saved. */
+  const [backgroundDrafts, setBackgroundDrafts] = useState<SplitBackgroundDrafts>(backgrounds);
+  const [backgroundEditDayId, setBackgroundEditDayId] = useState<DayId | null>(null);
+  /** The one expanded day (all collapsed by default). Drafts of other days are kept. */
+  const [expandedDayId, setExpandedDayId] = useState<DayId | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -71,7 +87,27 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
     setCopyDestinationDayId(null);
     setCopySourceDayId(null);
     setCopyNotice(null);
-  }, [isOpen, splitName, days]);
+    setBackgroundDrafts(backgrounds);
+    setBackgroundEditDayId(null);
+    setExpandedDayId(null);
+  }, [isOpen, splitName, days, backgrounds]);
+
+  /** Uses a gallery image (by reference) for the day, with its settings. */
+  const applyBackground = (dayId: DayId, image: { storagePath: string; imageUrl: string | null }, settings: DayBackgroundDraft['settings']) => {
+    setBackgroundDrafts((drafts) => ({ ...drafts, [dayId]: { image: { kind: 'stored', storagePath: image.storagePath, imageUrl: image.imageUrl }, settings } }));
+    setBackgroundEditDayId(null);
+    setCopyNotice({ dayId, tone: 'success', message: `${dayName(dayId)}’s background is ready. Save the split to keep it.` });
+  };
+
+  const removeBackground = (dayId: DayId) => {
+    setBackgroundDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[dayId];
+      return next;
+    });
+    setBackgroundEditDayId(null);
+    setCopyNotice({ dayId, tone: 'success', message: `${dayName(dayId)}’s background will be removed when you save the split.` });
+  };
 
   const dayName = (dayId: DayId) => WEEKLY_SCHEDULE.find((meta) => meta.id === dayId)?.dayName ?? dayId;
   const describeDay = (day: CustomDayPlan) =>
@@ -123,7 +159,7 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
     }
     setSaving(true);
     try {
-      await onSave(name.trim(), cleaned);
+      await onSave(name.trim(), cleaned, backgroundDrafts);
       onClose();
     } catch (saveError) {
       setError(errorMessage(saveError, 'Could not save the split.'));
@@ -300,9 +336,27 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
           const day = draft.find((candidate) => candidate.dayId === meta.id);
           if (!day) return null;
           const nameFieldId = `${nameId}-${meta.id}`;
+          const isExpanded = expandedDayId === meta.id;
           return (
-            <fieldset key={meta.id} className="split-day" data-testid={`split-day-${meta.id}`}>
-              <legend className="split-day__legend">{meta.dayName}</legend>
+            <section key={meta.id} className={`split-day${isExpanded ? ' is-expanded' : ''}`} data-testid={`split-day-${meta.id}`}>
+              <button
+                type="button"
+                className="split-day__header"
+                aria-expanded={isExpanded}
+                aria-controls={`${nameId}-${meta.id}-body`}
+                onClick={() => {
+                  setExpandedDayId(isExpanded ? null : meta.id);
+                  setBackgroundEditDayId(null);
+                  setCopyDestinationDayId(null);
+                }}
+                data-testid={`split-day-toggle-${meta.id}`}
+              >
+                <span className="split-day__title">{meta.dayName}</span>
+                <span className="split-day__summary">{describeDay(day)}</span>
+                <ChevronDown size={18} className="split-group__chevron" aria-hidden="true" />
+              </button>
+              {isExpanded && (
+              <div className="split-day__body" id={`${nameId}-${meta.id}-body`} data-testid={`split-day-body-${meta.id}`}>
               <div className="split-day__copy">
                 <button
                   type="button"
@@ -311,9 +365,45 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
                   onClick={() => (copyDestinationDayId === meta.id ? setCopyDestinationDayId(null) : openCopyPanel(meta.id))}
                   data-testid={`copy-day-${meta.id}`}
                 >
-                  <Copy size={14} aria-hidden="true" /> Copy From Another Day
+                  <Copy size={14} aria-hidden="true" /> Copy Workouts
+                </button>
+                <button
+                  type="button"
+                  className="chip-button"
+                  aria-expanded={backgroundEditDayId === meta.id}
+                  onClick={() => {
+                    setBackgroundEditDayId(backgroundEditDayId === meta.id ? null : meta.id);
+                    setCopyDestinationDayId(null);
+                  }}
+                  data-testid={`edit-background-${meta.id}`}
+                >
+                  <ImageIcon size={14} aria-hidden="true" /> {backgroundDrafts[meta.id] ? 'Edit Background' : 'Add Background'}
                 </button>
               </div>
+              {backgroundEditDayId === meta.id && (
+                <div className="split-day__background-editor" data-testid={`split-background-editor-${meta.id}`}>
+                  <CardBackgroundEditor
+                    actingProfileId={actingProfileId}
+                    background={(() => {
+                      const draft = backgroundDrafts[meta.id];
+                      return draft ? { storagePath: draft.image.storagePath, imageUrl: imageUrlOf(draft), settings: draft.settings } : null;
+                    })()}
+                    saveLabel="Apply"
+                    renderPreview={(preview) => {
+                      const previewDay = customDayToWorkoutDay(day);
+                      return previewDay ? <DayCard day={previewDay} isToday={false} onSelect={() => undefined} background={preview} isPreview /> : null;
+                    }}
+                    onSave={async (image, settings) => applyBackground(meta.id, image, settings)}
+                    onRemove={async () => removeBackground(meta.id)}
+                    onCancel={() => setBackgroundEditDayId(null)}
+                    onImageDeleted={(storagePath) =>
+                      setBackgroundDrafts((drafts) =>
+                        Object.fromEntries(Object.entries(drafts).filter(([, draft]) => draft?.image.storagePath !== storagePath)),
+                      )
+                    }
+                  />
+                </div>
+              )}
               {copyDestinationDayId === meta.id && copySourceDayId && (
                 <div className="copy-day-panel" role="group" aria-label={`Copy a workout into ${meta.dayName}`} data-testid={`copy-day-panel-${meta.id}`}>
                   <label className="field">
@@ -403,7 +493,9 @@ export function SplitEditor({ isOpen, mode, splitName, days, isNameTaken, shared
               {!day.isRest && day.muscleGroupIds.length > 0 && (
                 <div className="split-groups">{MUSCLE_GROUPS.filter((group) => day.muscleGroupIds.includes(group.id)).map((group) => renderGroup(day, group.id))}</div>
               )}
-            </fieldset>
+              </div>
+              )}
+            </section>
           );
         })}
         {error && (

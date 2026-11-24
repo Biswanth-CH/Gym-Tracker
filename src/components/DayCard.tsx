@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { WORKOUT_CATEGORIES, getDayMuscleLabels } from '../constants/workoutSchedule';
+import { WORKOUT_CATEGORIES } from '../constants/workoutSchedule';
 import type { CardBackgroundSettings, WorkoutDay } from '../types/gym';
 import { CardBackgroundLayers } from './cardBackground/CardBackgroundLayers';
-import { WorkoutIcon } from './WorkoutIcon';
 
 interface DayCardProps {
   day: WorkoutDay;
@@ -23,15 +22,16 @@ export function DayCard({ day, isToday, onSelect, background = null, isPreview =
   const content: ReactNode = (
     <>
       {background?.imageUrl && <CardBackgroundLayers imageUrl={background.imageUrl} settings={background.settings} />}
-      <span className="day-card__top">
-        <span className="category-icon">
-          <WorkoutIcon category={day.category} size={18} />
+      {isToday && (
+        <span className="day-card__top">
+          <span className="day-card__today">Today</span>
         </span>
-        {isToday && <span className="day-card__today">Today</span>}
+      )}
+      {/* Only the day and its workout name, at the bottom-left (muscle groups live on the day page). */}
+      <span className="day-card__text">
+        <span className="day-card__day">{day.dayName}</span>
+        <span className="day-card__category">{categoryLabel}</span>
       </span>
-      <span className="day-card__day">{day.dayName}</span>
-      <span className="day-card__category">{categoryLabel}</span>
-      <span className="day-card__muscles">{getDayMuscleLabels(day).join(' · ')}</span>
       <span className="day-card__chevron" aria-hidden="true">
         <ChevronRight size={18} />
       </span>
@@ -52,7 +52,7 @@ export function DayCard({ day, isToday, onSelect, background = null, isPreview =
       className={className}
       data-category={day.category}
       onClick={() => onSelect(day)}
-      aria-label={`${day.dayName}: ${categoryLabel}, ${getDayMuscleLabels(day).join(', ')}${isToday ? ' (today)' : ''}`}
+      aria-label={`${day.dayName}: ${categoryLabel}${isToday ? ' (today)' : ''}`}
       data-testid={`day-card-${day.id}`}
     >
       {content}

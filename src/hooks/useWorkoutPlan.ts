@@ -56,8 +56,8 @@ export function useWorkoutPlan(profileId: string) {
     [accountWorkoutSplits],
   );
   const duplicateWorkoutSplit = useCallback(
-    (sourceName: string, sourceDays: readonly CustomDayPlan[]) =>
-      workoutSplitTemplateService.duplicate(profileId, sourceName, sourceDays, accountWorkoutSplits),
+    (sourceName: string, sourceDays: readonly CustomDayPlan[], sourceSplitId?: string) =>
+      workoutSplitTemplateService.duplicate(profileId, sourceName, sourceDays, accountWorkoutSplits, sourceSplitId),
     [profileId, accountWorkoutSplits],
   );
   const deleteWorkoutSplit = useCallback((template: WorkoutSplitTemplate) => workoutSplitTemplateService.remove(template), []);

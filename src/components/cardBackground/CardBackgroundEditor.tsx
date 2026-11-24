@@ -1,19 +1,17 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { ImagePlus, Loader2, Trash2 } from 'lucide-react';
-import { ACCEPTED_IMAGE_TYPES } from '../../constants/profileOptions';
-import { useCloudSlice } from '../../hooks/useCloud';
-import { cardBackgroundService } from '../../services/cloud/cardBackgroundService';
+import { useState, type ReactNode } from 'react';
+import { Images, Loader2, Trash2 } from 'lucide-react';
 import { errorMessage } from '../../services/cloud/cloudErrors';
-import type { CardBackground, CardBackgroundKey, CardBackgroundSettings } from '../../types/gym';
+import type { CardBackgroundSettings } from '../../types/gym';
 import {
   DEFAULT_CARD_BACKGROUND_SETTINGS,
-  MAX_BACKGROUND_BYTES,
-  MAX_BACKGROUND_DIMENSION,
   MAX_BLUR_PX,
   MAX_DIM_PERCENT,
+  MAX_ZOOM_PERCENT,
+  MIN_ZOOM_PERCENT,
+  backgroundSettingsSummary,
   normalizeBackgroundSettings,
 } from '../../utils/cardBackground';
-import { compressBackgroundImage } from '../../utils/imageUtils';
+import { BackgroundGallery } from './BackgroundGallery';
 
 /** What the live preview should show (null = the card's normal design). */
 export interface CardBackgroundPreview {
@@ -22,75 +20,48 @@ export interface CardBackgroundPreview {
 }
 
 interface CardBackgroundEditorProps {
-  profileId: string;
-  cardKey: CardBackgroundKey;
-  /** The saved background (null when the card has none). */
-  background: CardBackground | null;
+  /** The profile using the editor (gallery uploads belong to it; it may delete only its own uploads). */
+  actingProfileId: string;
+  /** The current background (null when the card has none). */
+  background: { storagePath: string; imageUrl: string | null; settings: CardBackgroundSettings } | null;
   /** Renders the real card with the draft background, for the live preview. */
   renderPreview: (preview: CardBackgroundPreview | null) => ReactNode;
-  /** Called after Save / Remove succeeded (with a toast message) or on Cancel (null). */
-  onDone: (message: string | null) => void;
+  /** Save: the chosen gallery image (path + preview URL) and the settings. Throw to show an error. */
+  onSave: (image: { storagePath: string; imageUrl: string | null }, settings: CardBackgroundSettings) => Promise<void>;
+  /** Remove the background from this card (the image stays in the gallery). Throw to show an error. */
+  onRemove: () => Promise<void>;
+  onCancel: () => void;
+  /** "Save" for direct saves; "Apply" for split drafts. */
+  saveLabel?: string;
+  /** A gallery image was deleted (every saved card using it is already reset). */
+  onImageDeleted?: (storagePath: string) => void;
 }
 
-type Stage = 'idle' | 'compressing' | 'uploading' | 'removing';
-
-const STAGE_LABEL: Record<Stage, string> = {
-  idle: '',
-  compressing: 'Preparing image…',
-  uploading: 'Uploading and saving…',
-  removing: 'Removing…',
-};
+type Stage = 'idle' | 'saving' | 'removing';
 
 /**
- * "Customize Card Background": pick an image (compressed in the browser before upload),
- * adjust dim / blur / focal point with a live preview, then Save, Cancel (restores the
- * saved state — nothing is uploaded until Save) or Remove Background.
+ * "Edit Background": choose an image from the shared gallery (or upload one there), adjust
+ * dim / blur / zoom / position with a live preview, then Save, Cancel or Remove Background.
+ * The settings summary is shown only here (never on the cards themselves).
  */
-export function CardBackgroundEditor({ profileId, cardKey, background, renderPreview, onDone }: CardBackgroundEditorProps) {
-  const userId = useCloudSlice((snapshot) => snapshot.userId);
-  const inputId = useId();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [settings, setSettings] = useState<CardBackgroundSettings>(() => (background ? normalizeBackgroundSettings(background) : DEFAULT_CARD_BACKGROUND_SETTINGS));
-  const [newImage, setNewImage] = useState<Blob | null>(null);
-  const [newImageUrl, setNewImageUrl] = useState<string | null>(null);
+export function CardBackgroundEditor({ actingProfileId, background, renderPreview, onSave, onRemove, onCancel, saveLabel = 'Save', onImageDeleted }: CardBackgroundEditorProps) {
+  const [settings, setSettings] = useState<CardBackgroundSettings>(() => (background ? normalizeBackgroundSettings(background.settings) : DEFAULT_CARD_BACKGROUND_SETTINGS));
+  const [chosen, setChosen] = useState<{ storagePath: string; imageUrl: string | null } | null>(background ? { storagePath: background.storagePath, imageUrl: background.imageUrl } : null);
+  const [galleryOpen, setGalleryOpen] = useState(!background);
   const [stage, setStage] = useState<Stage>('idle');
   const [error, setError] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const busy = stage !== 'idle';
 
-  // Release the local preview URL when it changes or the editor closes.
-  useEffect(() => () => {
-    if (newImageUrl) URL.revokeObjectURL(newImageUrl);
-  }, [newImageUrl]);
-
-  const previewUrl = newImageUrl ?? background?.imageUrl ?? null;
+  const previewUrl = chosen?.imageUrl ?? null;
   const preview: CardBackgroundPreview | null = previewUrl ? { imageUrl: previewUrl, settings } : null;
 
-  const chooseFile = async (file: File | undefined) => {
-    if (!file) return;
-    setError(null);
-    setStage('compressing');
-    try {
-      const blob = await compressBackgroundImage(file, MAX_BACKGROUND_DIMENSION, MAX_BACKGROUND_BYTES);
-      setNewImage(blob);
-      setNewImageUrl(URL.createObjectURL(blob));
-      // A brand-new image starts with the sensible defaults (dim 45 %, no blur, centred).
-      if (!background) setSettings(DEFAULT_CARD_BACKGROUND_SETTINGS);
-    } catch (chooseError) {
-      setError(errorMessage(chooseError, 'This image could not be used.'));
-    } finally {
-      setStage('idle');
-    }
-  };
-
   const save = async () => {
-    if (!userId) return setError('You are signed out. Please sign in again.');
-    if (!newImage && !background) return setError('Choose an image first.');
+    if (!chosen) return setError('Choose an image first.');
     setError(null);
-    setStage('uploading');
+    setStage('saving');
     try {
-      await cardBackgroundService.save({ userId, profileId, cardKey, newImage, settings, existing: background });
-      onDone('Card background saved');
+      await onSave(chosen, settings);
     } catch (saveError) {
       setError(errorMessage(saveError, 'Could not save the card background.'));
       setStage('idle');
@@ -99,17 +70,14 @@ export function CardBackgroundEditor({ profileId, cardKey, background, renderPre
 
   const remove = async () => {
     if (!background) {
-      // Only a not-yet-saved image: just drop it.
-      setNewImage(null);
-      setNewImageUrl(null);
+      setChosen(null);
       setConfirmingRemove(false);
       return;
     }
     setError(null);
     setStage('removing');
     try {
-      await cardBackgroundService.remove(background);
-      onDone('Card background removed');
+      await onRemove();
     } catch (removeError) {
       setError(errorMessage(removeError, 'Could not remove the card background.'));
       setStage('idle');
@@ -117,18 +85,18 @@ export function CardBackgroundEditor({ profileId, cardKey, background, renderPre
     }
   };
 
-  const slider = (key: keyof CardBackgroundSettings, label: string, max: number, unit: string, testId: string) => (
+  const slider = (key: keyof CardBackgroundSettings, label: string, max: number, unit: string, testId: string, min = 0, step = 1) => (
     <label className="bg-slider">
       <span className="bg-slider__label">
         {label} <span className="bg-slider__value">{settings[key]}{unit}</span>
       </span>
       <input
         type="range"
-        min={0}
+        min={min}
         max={max}
-        step={1}
+        step={step}
         value={settings[key]}
-        disabled={!preview || busy}
+        disabled={!chosen || busy}
         onChange={(event) => setSettings((current) => normalizeBackgroundSettings({ ...current, [key]: event.target.value }))}
         data-testid={testId}
       />
@@ -140,31 +108,45 @@ export function CardBackgroundEditor({ profileId, cardKey, background, renderPre
       <div className="bg-editor__preview" data-testid="card-background-preview">
         {renderPreview(preview)}
       </div>
+      {chosen && (
+        <p className="bg-editor__summary" data-testid="card-bg-summary">
+          {backgroundSettingsSummary(settings)}
+        </p>
+      )}
 
       <div className="bg-editor__upload">
-        <button type="button" className="button button--ghost button--compact" onClick={() => fileInputRef.current?.click()} disabled={busy} data-testid="card-bg-choose">
-          <ImagePlus size={16} aria-hidden="true" /> {previewUrl ? 'Replace Image' : 'Upload Image'}
+        <button
+          type="button"
+          className="button button--ghost button--compact"
+          aria-expanded={galleryOpen}
+          onClick={() => setGalleryOpen((open) => !open)}
+          disabled={busy}
+          data-testid="card-bg-choose"
+        >
+          <Images size={16} aria-hidden="true" /> {chosen ? 'Replace Image' : 'Choose Image'}
         </button>
-        <input
-          id={inputId}
-          ref={fileInputRef}
-          className="visually-hidden"
-          type="file"
-          accept={ACCEPTED_IMAGE_TYPES.join(',')}
-          tabIndex={-1}
-          aria-label="Choose a background image"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = '';
-            void chooseFile(file);
-          }}
-          data-testid="card-bg-file"
-        />
-        <span className="photo-picker__hint">JPG, PNG or WebP · large photos are resized before upload</span>
       </div>
+      {galleryOpen && (
+        <BackgroundGallery
+          actingProfileId={actingProfileId}
+          selectedPath={chosen?.storagePath ?? null}
+          onSelect={(image) => {
+            // A newly chosen image starts from the defaults only when the card had none.
+            if (!chosen) setSettings(DEFAULT_CARD_BACKGROUND_SETTINGS);
+            setChosen(image);
+            setError(null);
+          }}
+          onDeleted={(storagePath) => {
+            // The deleted image can't be used any more: this card goes back to its default look.
+            if (chosen?.storagePath === storagePath) setChosen(null);
+            onImageDeleted?.(storagePath);
+          }}
+        />
+      )}
 
       {slider('dimPercent', 'Dim', MAX_DIM_PERCENT, '%', 'card-bg-dim')}
       {slider('blurPx', 'Blur', MAX_BLUR_PX, 'px', 'card-bg-blur')}
+      {slider('zoomPercent', 'Zoom', MAX_ZOOM_PERCENT, '%', 'card-bg-zoom', MIN_ZOOM_PERCENT, 5)}
       <div className="bg-editor__focal">
         {slider('focalX', 'Position ↔', 100, '%', 'card-bg-focal-x')}
         {slider('focalY', 'Position ↕', 100, '%', 'card-bg-focal-y')}
@@ -172,7 +154,7 @@ export function CardBackgroundEditor({ profileId, cardKey, background, renderPre
 
       {busy && (
         <p className="bg-editor__status" role="status" data-testid="card-bg-status">
-          <Loader2 size={16} className="spin" aria-hidden="true" /> {STAGE_LABEL[stage]}
+          <Loader2 size={16} className="spin" aria-hidden="true" /> {stage === 'removing' ? 'Removing…' : 'Saving…'}
         </p>
       )}
       {error && (
@@ -183,7 +165,7 @@ export function CardBackgroundEditor({ profileId, cardKey, background, renderPre
 
       {confirmingRemove ? (
         <div className="bg-editor__confirm" role="alert" data-testid="card-bg-remove-confirm">
-          <p>Remove this background? The card goes back to its normal look.</p>
+          <p>Remove this background? The card goes back to its normal look. The image stays in the gallery.</p>
           <div className="modal__actions">
             <button type="button" className="button button--ghost" onClick={() => setConfirmingRemove(false)} disabled={busy}>
               Keep it
@@ -195,16 +177,16 @@ export function CardBackgroundEditor({ profileId, cardKey, background, renderPre
         </div>
       ) : (
         <div className="modal__actions bg-editor__actions">
-          {previewUrl && (
+          {chosen && (
             <button type="button" className="button button--ghost button--danger-text" onClick={() => setConfirmingRemove(true)} disabled={busy} data-testid="card-bg-remove">
               <Trash2 size={16} aria-hidden="true" /> Remove Background
             </button>
           )}
-          <button type="button" className="button button--ghost" onClick={() => onDone(null)} disabled={busy} data-testid="card-bg-cancel">
+          <button type="button" className="button button--ghost" onClick={onCancel} disabled={busy} data-testid="card-bg-cancel">
             Cancel
           </button>
-          <button type="button" className="button button--primary" onClick={() => void save()} disabled={busy || !previewUrl} data-testid="card-bg-save">
-            Save
+          <button type="button" className="button button--primary" onClick={() => void save()} disabled={busy || !chosen} data-testid="card-bg-save">
+            {saveLabel}
           </button>
         </div>
       )}

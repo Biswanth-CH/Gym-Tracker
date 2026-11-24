@@ -6104,3 +6104,640 @@ code {
 .bg-editor__actions {
   flex-wrap: wrap;
 }
+
+
+/* =========================================================
+   Phase 8
+   ========================================================= */
+
+/* Profile card: no gender chip, name at the bottom-left, optional hidden picture */
+.profile-grid .profile-tile {
+  align-items: stretch;
+  min-height: 168px;
+}
+
+.profile-tile .profile-tile__avatar {
+  align-self: center;
+}
+
+.profile-tile__name {
+  margin-top: auto;
+  text-align: left;
+}
+
+.profile-tile__open {
+  justify-content: flex-start;
+}
+
+.photo-picker__card-toggle {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+/* Weekly plan header: attendance + weight, headings follow today's state */
+.today-heading--success {
+  color: #3ddc84;
+}
+
+.today-heading--danger {
+  color: var(--color-danger);
+}
+
+.today-heading--neutral {
+  color: var(--color-text);
+}
+
+.dashboard-today {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.today-weight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.today-weight__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.today-weight__value {
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid rgba(61, 220, 132, 0.45);
+  border-radius: var(--radius-full);
+  background: rgba(61, 220, 132, 0.1);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-weight__log {
+  min-height: 32px;
+  padding: 2px 10px;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .dashboard-identity-row {
+    flex-wrap: wrap;
+  }
+
+  .dashboard-today {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .dashboard-today .compact-attendance,
+  .dashboard-today .today-weight {
+    align-items: flex-start;
+  }
+
+  .dashboard-today .today-weight {
+    align-items: flex-end;
+  }
+}
+
+/* Consistency Track card */
+.consistency-track .today-log {
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.consistency-track__stats {
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+/* Create split chooser */
+.create-split-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.create-split-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-align: left;
+}
+
+.create-split-option:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
+.create-split-option > svg:first-child {
+  flex: none;
+  color: var(--color-brand);
+}
+
+.create-split-option__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.create-split-option__title {
+  font-weight: 700;
+}
+
+.create-split-option__hint,
+.create-split-empty p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.split-option__main:only-child {
+  grid-column: 1 / -1;
+}
+
+/* Split editor: weekly card backgrounds */
+.split-day__copy {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.split-day__background {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.split-day__background-editor {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+/* Shared form videos */
+.form-videos__shared-note {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.form-video-card__owner {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+
+.form-video-card__actions .icon-button.is-active {
+  color: var(--color-brand);
+}
+
+.form-videos__hidden-toggle {
+  margin-top: var(--space-4);
+}
+
+.hidden-video-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.hidden-video {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.hidden-video__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Weekly plan: today's data status button → Today page */
+.today-log-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-full);
+  background: transparent;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.today-log-button--success {
+  background: rgba(61, 220, 132, 0.12);
+  color: #3ddc84;
+}
+
+.today-log-button--warning {
+  background: rgba(250, 204, 21, 0.12);
+  color: #facc15;
+}
+
+.today-log-button--danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.today-page__date {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.today-page__card .compact-attendance,
+.today-page__card .today-weight {
+  align-items: flex-start;
+}
+
+.today-page__card .compact-attendance__title,
+.today-page__card .today-weight__title {
+  font-size: var(--text-lg);
+}
+
+.today-page__card .compact-attendance--rest {
+  max-width: none;
+  text-align: left;
+}
+
+/* Header profile button: name, then picture on the right */
+.app-header__profile {
+  gap: 6px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+}
+
+.app-header__profile-avatar {
+  flex: none;
+}
+
+/* Today page: roomier sections */
+.today-page__card {
+  padding: var(--space-5);
+}
+
+.today-page__card .compact-attendance,
+.today-page__card .today-weight {
+  gap: var(--space-3);
+}
+
+.today-page__card .compact-attendance__actions {
+  gap: var(--space-3);
+}
+
+.today-page__card .icon-toggle {
+  width: 44px;
+  height: 44px;
+}
+
+.today-page__card .today-weight__log,
+.today-page__card .today-weight__value {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.today-page__card + .today-page__card {
+  margin-top: var(--space-5);
+}
+
+/* =========================================================
+   Phase 8b: collapsible split days + shared background gallery
+   ========================================================= */
+.split-day {
+  padding: 0;
+  overflow: hidden;
+}
+
+.split-day__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.split-day__header:hover {
+  background: var(--color-surface-hover);
+}
+
+.split-day__title {
+  flex: none;
+  font-weight: 700;
+}
+
+.split-day__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.split-day__header[aria-expanded='true'] .split-group__chevron {
+  transform: rotate(180deg);
+}
+
+.split-day.is-expanded {
+  border-color: var(--color-border-strong);
+}
+
+.split-day__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.split-day__body .split-day__copy {
+  justify-content: flex-start;
+  margin: 0;
+}
+
+.bg-editor__summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.bg-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.bg-gallery__upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bg-gallery__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.bg-gallery__group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.bg-gallery__group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-align: left;
+}
+
+.bg-gallery__group-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bg-gallery__group-count {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.bg-gallery__group.is-open .split-group__chevron {
+  transform: rotate(180deg);
+}
+
+.bg-gallery__empty {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.bg-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.bg-gallery__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bg-gallery__thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.bg-gallery__thumb img,
+.bg-gallery__thumb-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bg-gallery__item.is-selected .bg-gallery__thumb {
+  border-color: var(--color-brand);
+}
+
+.bg-gallery__selected {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--color-brand);
+  color: var(--color-brand-ink);
+}
+
+.bg-gallery__meta {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+
+.bg-gallery__delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 32px;
+  height: 32px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.bg-gallery__confirm p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Gallery nested in the split editor: less padding so headings fit on phones */
+.split-day__background-editor {
+  padding: var(--space-2);
+}
+
+.split-day__background-editor .bg-gallery {
+  padding: var(--space-2);
+}
+
+.split-day__background-editor .bg-gallery__grid {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.split-day__background-editor .bg-gallery__group-header {
+  padding: 0 var(--space-2);
+}
+
+/* Day cards: no category icon; the Today badge sits top-right */
+.day-card__top {
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+}
+
+/* Day cards: day + workout name only, bottom-left; Today badge top-right */
+.day-card .day-card__top {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  width: auto;
+  margin: 0;
+}
+
+.day-card__text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: auto;
+  padding-right: var(--space-5);
+  min-width: 0;
+  max-width: 100%;
+  text-align: left;
+}
+
+.day-card__text .day-card__day,
+.day-card__text .day-card__category {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* Body weight card: a single view button (Consistency page) spans the full width */
+.weight-card__views > .button:only-child {
+  grid-column: 1 / -1;
+}
+
+.bg-gallery__empty--all {
+  padding: var(--space-2) 0;
+}
+
+/* Gallery delete confirmation: thumbnail + uploader */
+.bg-gallery__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-soft);
+}
+
+.bg-gallery__confirm-image {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bg-gallery__confirm-image img,
+.bg-gallery__confirm-image .bg-gallery__thumb-placeholder {
+  flex: none;
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: var(--radius-sm, 8px);
+}
+
+.bg-gallery__confirm-owner {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.bg-gallery__confirm p {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.bg-gallery__confirm .bg-gallery__confirm-usage {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}

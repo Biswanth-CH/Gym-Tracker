@@ -8,9 +8,13 @@ For the full step-by-step setup, see `../SUPABASE_SETUP.md`.
 ```
 auth.users (Supabase accounts)
    ├── account_workout_split_templates   owner_id = auth.uid(); shared split library of the account (Phase 6)
-   └── gym_profiles            owner_id = auth.uid(); optional age_years, height_cm (5); theme_key (6); custom_theme_color (7)
-          ├── profile_exercise_form_videos  form-reference links per variation (Phase 7)
-          ├── profile_card_backgrounds   card background image + dim / blur / focal per profile card and weekday (Phase 7)
+   │      └── account_split_day_backgrounds  weekday card background (path + dim / blur / zoom / position) per split (Phase 8)
+   ├── account_background_images     shared background gallery: path + uploading profile; delete only via delete_background_image() (Phase 8b)
+   ├── exercise_form_videos          created_by = adding account; SHARED: every signed-in user reads, only the creator edits / deletes (Phase 8)
+   └── gym_profiles            owner_id = auth.uid(); optional age_years, height_cm (5); theme_key (6); custom_theme_color (7); show_photo_on_card (8)
+          ├── profile_exercise_form_videos  Phase 7 per-profile links (legacy; copied to exercise_form_videos in Phase 8)
+          ├── profile_card_backgrounds   profile-card background + dim / blur / zoom / focal (weekday rows: Phase 7 legacy)
+          ├── profile_hidden_form_videos  private per-profile "Hide" of a shared video (Phase 8)
           ├── profile_pin_security         bcrypt hash + lockout; NO API grants, functions only (Phase 6)
           ├── attendance_records          unique (profile_id, date)
           ├── daily_exercise_selections   unique (profile_id, exercise_id, date)
@@ -54,6 +58,21 @@ Migrations for existing projects (run each once, in order, in the SQL Editor; al
 ## Realtime
 The synced tables, including `profile_workout_plans` and `body_weight_entries`, are added to the `supabase_realtime` publication. Realtime applies
 RLS, so each signed-in device only receives events for its own account's rows.
+
+- `migrations/20261125_phase8_shared_videos_split_backgrounds.sql` (Phase 8: card-picture visibility, background zoom, shared split weekday backgrounds, shared form videos + per-profile hidden videos, with data copied from Phase 7). See `../SUPABASE_SETUP.md` §8f.
+
+- `migrations/20261126_phase8b_background_gallery.sql` (Phase 8b: shared background gallery with uploader-only, in-use-protected deletion; card / split rows must reference gallery images; storage update / delete refuse gallery and in-use files). See `../SUPABASE_SETUP.md` §8g.
+
+- `migrations/20261127_phase8c_background_delete_cleanup.sql` (Phase 8c: the uploader can delete an image that is in use; one transaction resets every card / split day using it and removes the gallery row). See `../SUPABASE_SETUP.md` §8h.
+
+## Verified locally (Phase 8c)
+`schema.sql` (fresh, twice) and the 8c migration (twice on a Phase 8b project) in PGlite: 24 checks passed — refuses to run before 8b; another profile, a profile of another account, or no profile → refused with nothing changed; another account can't find the image; the uploader deletes an image used by 2 profile cards and 3 split days in 2 splits (all reset, gallery row gone); unrelated backgrounds, workouts and profiles unchanged; Storage then allows deleting that file but still protects others; a repeated / concurrent delete finds nothing; unused images deletable; a rolled-back delete keeps everything; anon denied; RLS on every table. Not run against the real project.
+
+## Verified locally (Phase 8b)
+`schema.sql` (fresh, twice) and the 8b migration (twice on a Phase 8 project, then Phase 7 + 8 re-run on top) in PGlite: 37 checks passed — refuses to run before Phase 8; backfill registers every used image once with the right uploader and leaves card / split rows untouched; uploads only into the acting profile's folder and only for the account's profiles; any profile can use another profile's image; non-gallery paths rejected; no direct UPDATE / DELETE on the gallery; delete only by the uploader, never while in use; storage refuses deleting / overwriting gallery or in-use files but still allows avatars; duplicates deletable one by one; a deleted profile's images are kept and then deletable by the account; other accounts see / use / delete nothing; anon denied; re-running Phase 7 + 8 keeps the 8b rules; RLS on every table; Realtime entry. Not run against the real project.
+
+## Verified locally (Phase 8)
+`schema.sql` (fresh, run twice) and the Phase 8 migration (twice on a Phase 7 project with profiles, splits, backgrounds and videos, then once more after deleting copies) were executed in PGlite: 57 checks passed — refuses to run before Phase 7; defaults (picture shown, zoom 100); zoom limits; weekday backgrounds copied to active and remembered splits reusing the same file with settings kept; videos copied with duplicates merged, ids / names / owners kept, old tables untouched; deleted copies not re-created; cross-account read of shared videos; created_by forced to the caller; only the creator edits / deletes; duplicate link rejected; per-profile hide private and cascading; split background ownership, path rules, independence of duplicated rows and cascade on split delete; storage limited to the owner's folder; anon denied; migration log hidden; RLS on every table; Realtime entries. Not run against the real project.
 
 ## Verified locally (Phase 7)
 `schema.sql` (fresh, run twice) and the Phase 7 migration (run twice on a Phase 6 project with profiles, themes and a PIN) were executed in PGlite with pgcrypto: 39 checks passed — card backgrounds (one row per profile + card, path must be in the profile's own backgrounds folder, limits, Monday independent of Thursday, cross-account isolation, cascade), storage uploads limited to the owner's folder, presets kept, custom colour format enforced, PIN data untouched, several videos per variation, http(s)-only URLs, platform / name checks, cross-account insert / read / update / delete / move blocked, anon denied, cascade on profile delete, RLS on every table, Realtime has the videos table but still not the PIN table. Not run against the real project.

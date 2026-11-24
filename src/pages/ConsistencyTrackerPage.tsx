@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { BarChart3 } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
 import { Toast } from '../components/Toast';
 import { AttendanceCalendar } from '../components/consistency/AttendanceCalendar';
@@ -127,15 +128,17 @@ export function ConsistencyTrackerPage({ profile, onBack, onOpenWeightData, onOp
         />
       </section>
 
-      <AttendanceQuickLog attendance={attendance} context={context} onChoose={(date, status) => void choose(date, status)} title="Today" />
+      <section className="detail-card consistency-track" aria-labelledby="consistency-track-heading" data-testid="consistency-track">
+        <h2 id="consistency-track-heading" className="detail-card__title">
+          Consistency Track
+        </h2>
+        <AttendanceQuickLog attendance={attendance} context={context} onChoose={(date, status) => void choose(date, status)} title="Today" />
+        <button type="button" className="button button--ghost consistency-track__stats" onClick={onOpenMonthlyStatistics} data-testid="open-monthly-statistics">
+          <BarChart3 size={18} aria-hidden="true" /> Monthly Statistics
+        </button>
+      </section>
 
-      <BodyWeightSection
-        profile={profile}
-        todayKey={todayKey}
-        onToast={showToast}
-        onOpenWeightData={onOpenWeightData}
-        onOpenMonthlyStatistics={onOpenMonthlyStatistics}
-      />
+      <BodyWeightSection profile={profile} todayKey={todayKey} onToast={showToast} onOpenWeightData={onOpenWeightData} />
 
 
       <AttendanceModal

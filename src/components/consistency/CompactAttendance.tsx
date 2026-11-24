@@ -1,15 +1,22 @@
 import { Check, Circle, X as XIcon } from 'lucide-react';
 import type { AttendanceMap, AttendanceStatus, DateKey } from '../../types/gym';
 import { getDayState, isMarkableState, type TrackerContext } from '../../utils/consistencyUtils';
+import { attendanceHeading } from '../../utils/todayStatus';
 
 interface CompactAttendanceProps {
   attendance: AttendanceMap;
   context: TrackerContext;
   onChoose: (date: DateKey, status: AttendanceStatus | null) => void;
+  /** Shows the third "Clear Mark" option (Today page). */
+  allowClear?: boolean;
 }
 
-/** Small today-only attendance control. Uses the shared attendance service through `onChoose`. */
-export function CompactAttendance({ attendance, context, onChoose }: CompactAttendanceProps) {
+/**
+ * Small today-only attendance control. Uses the shared attendance service through `onChoose`.
+ * The heading follows today's mark immediately: green when went, red when missed.
+ * Went / Did Not Go, plus Clear Mark when `allowClear` (the Today page).
+ */
+export function CompactAttendance({ attendance, context, onChoose, allowClear = false }: CompactAttendanceProps) {
   const { todayKey } = context;
   const state = getDayState(todayKey, attendance, context);
   const status = attendance.get(todayKey);
@@ -23,10 +30,13 @@ export function CompactAttendance({ attendance, context, onChoose }: CompactAtte
   }
 
   const choose = (next: AttendanceStatus | null) => onChoose(todayKey, next);
+  const heading = attendanceHeading(status);
 
   return (
     <section className="compact-attendance" aria-label="Today's attendance" data-testid="compact-attendance">
-      <p className="compact-attendance__title">Eeroju Gym ki ellava?</p>
+      <p className={`compact-attendance__title today-heading today-heading--${heading.tone}`} data-testid="attendance-heading" aria-live="polite">
+        {heading.text}
+      </p>
       <div className="compact-attendance__actions">
         <button
           type="button"
@@ -48,16 +58,18 @@ export function CompactAttendance({ attendance, context, onChoose }: CompactAtte
         >
           <XIcon size={16} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className="icon-toggle icon-toggle--clear"
-          aria-label="Clear Mark"
-          title="Clear Mark"
-          disabled={!status}
-          onClick={() => choose(null)}
-        >
-          <Circle size={16} aria-hidden="true" />
-        </button>
+        {allowClear && (
+          <button
+            type="button"
+            className="icon-toggle icon-toggle--clear"
+            aria-label="Clear Mark"
+            title="Clear Mark"
+            disabled={!status}
+            onClick={() => choose(null)}
+          >
+            <Circle size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </section>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { Check, Copy, ExternalLink, Globe, Instagram, Loader2, Pencil, PlayCircle, Plus, Trash2, Video, Youtube } from 'lucide-react';
+import { AlertTriangle, Archive, ArchiveRestore, Check, Copy, ExternalLink, Eye, EyeOff, Globe, Instagram, Loader2, Pencil, Plus, Trash2, Video, Youtube } from 'lucide-react';
 import { BackButton } from '../components/BackButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { EmptyState } from '../components/EmptyState';
@@ -7,6 +7,7 @@ import { Modal } from '../components/Modal';
 import { Toast } from '../components/Toast';
 import { getEquipmentNames } from '../constants/gymEquipment';
 import { useFormVideos } from '../hooks/useFormVideos';
+import { DELETE_SHARED_VIDEO_WARNING, EDIT_SHARED_VIDEO_WARNING } from '../utils/formVideoVisibility';
 import { useToast } from '../hooks/useToast';
 import { errorMessage } from '../services/cloud/cloudErrors';
 import type { ExerciseFormVideo, ExerciseFormVideoInput, FormVideoPlatform, LibraryExercise, MuscleGroup, MuscleRegion, Profile } from '../types/gym';
@@ -15,7 +16,6 @@ import {
   VIDEO_NAME_MAX_LENGTH,
   detectVideoPlatform,
   parseVideoUrl,
-  readableUrl,
   validateVideoName,
   videoPreviewFor,
 } from '../utils/formVideoLinks';
@@ -49,25 +49,58 @@ async function copyToClipboard(text: string): Promise<void> {
   if (!copied) throw new Error('Copy is not available in this browser.');
 }
 
-/** Form reference videos for ONE exercise variation of the active profile (saved in Supabase). */
+/**
+ * Form reference videos for ONE exercise variation. Phase 8: videos are SHARED by every
+ * account; each profile can hide videos for itself (Hidden Videos lists and restores them).
+ * Only the account that added a video can edit or delete it, after a global warning.
+ */
 export function ExerciseFormVideosPage({ profile, group, region, exercise, onBack }: ExerciseFormVideosPageProps) {
-  const { videos, isLoading, addVideo, updateVideo, deleteVideo } = useFormVideos(profile.id, exercise.id);
+  const { videos, hiddenVideos, isLoading, canModify, addVideo, updateVideo, deleteVideo, hideVideo, unhideVideo } = useFormVideos(profile.id, exercise.id);
   const { toast, showToast } = useToast();
   const [editor, setEditor] = useState<{ isOpen: false } | { isOpen: true; video: ExerciseFormVideo | null }>({ isOpen: false });
+  const [videoPendingEdit, setVideoPendingEdit] = useState<ExerciseFormVideo | null>(null);
   const [videoPendingDelete, setVideoPendingDelete] = useState<ExerciseFormVideo | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const [busyVideoId, setBusyVideoId] = useState<string | null>(null);
 
   const confirmDelete = async () => {
     if (!videoPendingDelete) return;
     setDeleting(true);
     try {
       await deleteVideo(videoPendingDelete.id);
-      showToast(`Deleted “${videoPendingDelete.videoName}”`, 'info');
+      showToast(`Deleted “${videoPendingDelete.videoName}” for everyone`, 'info');
       setVideoPendingDelete(null);
     } catch (error) {
       showToast(errorMessage(error, 'Could not delete the video.'), 'error');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const toggleHidden = async (video: ExerciseFormVideo, hide: boolean) => {
+    setBusyVideoId(video.id);
+    try {
+      if (hide) {
+        await hideVideo(video.id);
+        showToast(`Hidden for ${profile.name}`, 'info');
+      } else {
+        await unhideVideo(video.id);
+        showToast(`“${video.videoName}” is visible again`);
+      }
+    } catch (error) {
+      showToast(errorMessage(error, hide ? 'Could not hide the video.' : 'Could not unhide the video.'), 'error');
+    } finally {
+      setBusyVideoId(null);
+    }
+  };
+
+  const copyLink = async (video: ExerciseFormVideo) => {
+    try {
+      await copyToClipboard(video.videoUrl);
+      showToast('Link copied');
+    } catch (error) {
+      showToast(errorMessage(error, 'Could not copy the link.'), 'error');
     }
   };
 
@@ -86,6 +119,7 @@ export function ExerciseFormVideosPage({ profile, group, region, exercise, onBac
           <strong>{exercise.name}</strong>
           <span className="muted"> · {getEquipmentNames(exercise.equipment).join(', ')}</span>
         </p>
+        <p className="form-videos__shared-note">Shared with everyone using GymTrack. Hiding a video only hides it for {profile.name}.</p>
       </header>
 
       <button type="button" className="button button--primary form-videos__add" onClick={() => setEditor({ isOpen: true, video: null })} data-testid="form-video-add">
@@ -99,8 +133,12 @@ export function ExerciseFormVideosPage({ profile, group, region, exercise, onBac
       ) : videos.length === 0 ? (
         <EmptyState
           icon={<Video size={28} aria-hidden="true" />}
-          title="No form videos yet"
-          message="Save YouTube, Instagram or other links that show good form for this variation. They stay with this profile on every device."
+          title={hiddenVideos.length > 0 ? 'All videos are hidden' : 'No form videos yet'}
+          message={
+            hiddenVideos.length > 0
+              ? `${profile.name} has hidden every video for this variation. Open Hidden Videos to show them again.`
+              : 'Share YouTube, Instagram or other links that show good form for this variation. Everyone using GymTrack will see them.'
+          }
         />
       ) : (
         <ul className="form-video-list" data-testid="form-video-list">
@@ -108,21 +146,66 @@ export function ExerciseFormVideosPage({ profile, group, region, exercise, onBac
             <li key={video.id}>
               <FormVideoCard
                 video={video}
-                onEdit={() => setEditor({ isOpen: true, video })}
+                canModify={canModify(video)}
+                busy={busyVideoId === video.id}
+                onEdit={() => setVideoPendingEdit(video)}
                 onDelete={() => setVideoPendingDelete(video)}
-                onCopy={async () => {
-                  try {
-                    await copyToClipboard(video.videoUrl);
-                    showToast('Link copied');
-                  } catch (error) {
-                    showToast(errorMessage(error, 'Could not copy the link.'), 'error');
-                  }
-                }}
+                onHide={() => void toggleHidden(video, true)}
+                onCopy={() => void copyLink(video)}
               />
             </li>
           ))}
         </ul>
       )}
+
+      <button
+        type="button"
+        className="button button--ghost form-videos__hidden-toggle"
+        onClick={() => setShowHidden(true)}
+        data-testid="form-video-hidden-button"
+      >
+        <EyeOff size={16} aria-hidden="true" /> Hidden Videos{hiddenVideos.length > 0 ? ` (${hiddenVideos.length})` : ''}
+      </button>
+
+      <Modal
+        isOpen={showHidden}
+        onClose={() => setShowHidden(false)}
+        title="Hidden videos"
+        description={`Hidden only for ${profile.name}. Other profiles and accounts still see them.`}
+        placement="top"
+      >
+        {hiddenVideos.length === 0 ? (
+          <p className="split-list__empty" data-testid="form-video-hidden-empty">
+            No hidden videos for this variation.
+          </p>
+        ) : (
+          <ul className="hidden-video-list" data-testid="form-video-hidden-list">
+            {hiddenVideos.map((video) => {
+              const PlatformIcon = PLATFORM_ICON[video.platform];
+              return (
+                <li key={video.id} className="hidden-video" data-testid="form-video-hidden-item">
+                  <PlatformIcon size={16} aria-hidden="true" />
+                  <span className="hidden-video__name">{video.videoName}</span>
+                  <button
+                    type="button"
+                    className="button button--ghost button--compact"
+                    onClick={() => void toggleHidden(video, false)}
+                    disabled={busyVideoId === video.id}
+                    data-testid="form-video-unhide"
+                  >
+                    <ArchiveRestore size={16} aria-hidden="true" /> Unhide
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="modal__actions">
+          <button type="button" className="button button--ghost" onClick={() => setShowHidden(false)}>
+            Close
+          </button>
+        </div>
+      </Modal>
 
       <FormVideoEditor
         isOpen={editor.isOpen}
@@ -131,19 +214,32 @@ export function ExerciseFormVideosPage({ profile, group, region, exercise, onBac
         onSave={async (input) => {
           if (editor.isOpen && editor.video) {
             await updateVideo(editor.video, input);
-            showToast('Video updated');
+            showToast('Video updated for everyone');
           } else {
             await addVideo(input);
-            showToast('Video saved');
+            showToast('Video shared');
           }
           setEditor({ isOpen: false });
         }}
       />
       <ConfirmDialog
+        isOpen={videoPendingEdit !== null}
+        title="Edit shared video?"
+        description={EDIT_SHARED_VIDEO_WARNING}
+        confirmLabel="Continue"
+        icon={<AlertTriangle size={24} aria-hidden="true" />}
+        onCancel={() => setVideoPendingEdit(null)}
+        onConfirm={() => {
+          const video = videoPendingEdit;
+          setVideoPendingEdit(null);
+          if (video) setEditor({ isOpen: true, video });
+        }}
+      />
+      <ConfirmDialog
         isOpen={videoPendingDelete !== null}
-        title="Delete this video?"
-        description={`“${videoPendingDelete?.videoName ?? ''}” will be removed from this variation on every device. The video itself stays on its website.`}
-        confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+        title="Delete shared video?"
+        description={DELETE_SHARED_VIDEO_WARNING}
+        confirmLabel={deleting ? 'Deleting…' : 'Delete for everyone'}
         icon={<Trash2 size={24} aria-hidden="true" />}
         destructive
         onCancel={() => setVideoPendingDelete(null)}
@@ -154,11 +250,29 @@ export function ExerciseFormVideosPage({ profile, group, region, exercise, onBac
   );
 }
 
-function FormVideoCard({ video, onEdit, onDelete, onCopy }: { video: ExerciseFormVideo; onEdit: () => void; onDelete: () => void; onCopy: () => void }) {
+function FormVideoCard({
+  video,
+  canModify,
+  busy,
+  onEdit,
+  onDelete,
+  onHide,
+  onCopy,
+}: {
+  video: ExerciseFormVideo;
+  /** Only the account that added the video may edit / delete it (RLS enforces the same). */
+  canModify: boolean;
+  busy: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onHide: () => void;
+  onCopy: () => void;
+}) {
   const PlatformIcon = PLATFORM_ICON[video.platform];
   const preview = videoPreviewFor(video.videoUrl, video.platform);
-  // Instagram embeds are loaded only on request (they are heavier and not always available).
-  const [showInstagramPreview, setShowInstagramPreview] = useState(false);
+  const hasEmbed = preview.kind === 'youtube' || preview.kind === 'instagram';
+  // Previews stay hidden until asked for (per video); embeds never autoplay.
+  const [showPreview, setShowPreview] = useState(false);
 
   return (
     <article className="form-video-card" data-platform={video.platform} data-testid="form-video-card">
@@ -168,13 +282,11 @@ function FormVideoCard({ video, onEdit, onDelete, onCopy }: { video: ExerciseFor
         </span>
         <div className="form-video-card__text">
           <h2 className="form-video-card__title">{video.videoName}</h2>
-          <span className="form-video-card__url" title={video.videoUrl}>
-            {readableUrl(video.videoUrl)}
-          </span>
+          {!canModify && <span className="form-video-card__owner">Shared by another account</span>}
         </div>
       </div>
 
-      {preview.kind === 'youtube' && (
+      {showPreview && preview.kind === 'youtube' && (
         <div className="form-video-card__embed" data-testid="form-video-embed">
           {/* Privacy-enhanced embed, never autoplays; sandboxed. */}
           <iframe
@@ -188,42 +300,51 @@ function FormVideoCard({ video, onEdit, onDelete, onCopy }: { video: ExerciseFor
           />
         </div>
       )}
-      {preview.kind === 'instagram' &&
-        (showInstagramPreview ? (
-          <div className="form-video-card__embed form-video-card__embed--instagram" data-testid="form-video-embed">
-            <iframe
-              src={preview.embedUrl}
-              title={`${video.videoName} (Instagram)`}
-              loading="lazy"
-              referrerPolicy="strict-origin-when-cross-origin"
-              sandbox="allow-scripts allow-same-origin allow-popups"
-            />
-          </div>
-        ) : (
-          <button type="button" className="form-video-card__load" onClick={() => setShowInstagramPreview(true)} data-testid="form-video-load-preview">
-            <PlayCircle size={18} aria-hidden="true" /> Show Instagram preview
-          </button>
-        ))}
-      {preview.kind === 'link' && (
-        <a className="form-video-card__link" href={video.videoUrl} target="_blank" rel="noopener noreferrer nofollow" data-testid="form-video-link-card">
-          <Globe size={16} aria-hidden="true" />
-          <span>Preview not available — open the video on {PLATFORM_LABEL[video.platform] === 'Link' ? 'its website' : PLATFORM_LABEL[video.platform]}.</span>
-        </a>
+      {showPreview && preview.kind === 'instagram' && (
+        <div className="form-video-card__embed form-video-card__embed--instagram" data-testid="form-video-embed">
+          <iframe
+            src={preview.embedUrl}
+            title={`${video.videoName} (Instagram)`}
+            loading="lazy"
+            referrerPolicy="strict-origin-when-cross-origin"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+          />
+        </div>
       )}
 
       <div className="form-video-card__actions">
         <a className="button button--ghost button--compact" href={video.videoUrl} target="_blank" rel="noopener noreferrer nofollow" data-testid="form-video-open">
-          <ExternalLink size={16} aria-hidden="true" /> Open Video
+          <ExternalLink size={16} aria-hidden="true" /> Open
         </a>
-        <button type="button" className="icon-button" onClick={onEdit} aria-label={`Edit ${video.videoName}`} title="Edit" data-testid="form-video-edit">
-          <Pencil size={16} aria-hidden="true" />
-        </button>
+        {hasEmbed && (
+          <button
+            type="button"
+            className={`icon-button${showPreview ? ' is-active' : ''}`}
+            onClick={() => setShowPreview((current) => !current)}
+            aria-pressed={showPreview}
+            aria-label={showPreview ? `Hide preview of ${video.videoName}` : `Show preview of ${video.videoName}`}
+            title={showPreview ? 'Hide preview' : 'Show preview'}
+            data-testid="form-video-preview-toggle"
+          >
+            {showPreview ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+          </button>
+        )}
+        {canModify && (
+          <button type="button" className="icon-button" onClick={onEdit} aria-label={`Edit ${video.videoName}`} title="Edit" data-testid="form-video-edit">
+            <Pencil size={16} aria-hidden="true" />
+          </button>
+        )}
         <button type="button" className="icon-button" onClick={onCopy} aria-label={`Copy link of ${video.videoName}`} title="Copy link" data-testid="form-video-copy">
           <Copy size={16} aria-hidden="true" />
         </button>
-        <button type="button" className="icon-button icon-button--danger" onClick={onDelete} aria-label={`Delete ${video.videoName}`} title="Delete" data-testid="form-video-delete">
-          <Trash2 size={16} aria-hidden="true" />
+        <button type="button" className="icon-button" onClick={onHide} disabled={busy} aria-label={`Hide ${video.videoName} for this profile`} title="Hide for this profile" data-testid="form-video-hide">
+          <Archive size={16} aria-hidden="true" />
         </button>
+        {canModify && (
+          <button type="button" className="icon-button icon-button--danger" onClick={onDelete} aria-label={`Delete ${video.videoName}`} title="Delete" data-testid="form-video-delete">
+            <Trash2 size={16} aria-hidden="true" />
+          </button>
+        )}
       </div>
     </article>
   );

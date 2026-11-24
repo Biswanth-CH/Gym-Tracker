@@ -126,25 +126,31 @@ grant select, insert, update, delete on public.profile_card_backgrounds to authe
 alter table public.profile_card_backgrounds enable row level security;
 
 drop policy if exists profile_card_backgrounds_select_own on public.profile_card_backgrounds;
-drop policy if exists profile_card_backgrounds_insert_own on public.profile_card_backgrounds;
-drop policy if exists profile_card_backgrounds_update_own on public.profile_card_backgrounds;
 drop policy if exists profile_card_backgrounds_delete_own on public.profile_card_backgrounds;
 create policy profile_card_backgrounds_select_own on public.profile_card_backgrounds
   for select to authenticated using (public.owns_gym_profile(profile_id));
 -- A row may only point at a file in the caller's own folder for THAT profile.
-create policy profile_card_backgrounds_insert_own on public.profile_card_backgrounds
+-- Skipped once the Phase 8b gallery exists (its policies replace these).
+do $guard$
+begin
+  if to_regclass('public.account_background_images') is null then
+    execute $p$ drop policy if exists profile_card_backgrounds_insert_own on public.profile_card_backgrounds $p$;
+    execute $p$ drop policy if exists profile_card_backgrounds_update_own on public.profile_card_backgrounds $p$;
+    execute $p$ create policy profile_card_backgrounds_insert_own on public.profile_card_backgrounds
   for insert to authenticated
   with check (
     public.owns_gym_profile(profile_id)
     and storage_path like ((select auth.uid())::text || '/' || profile_id::text || '/backgrounds/%')
-  );
-create policy profile_card_backgrounds_update_own on public.profile_card_backgrounds
+  ) $p$;
+    execute $p$ create policy profile_card_backgrounds_update_own on public.profile_card_backgrounds
   for update to authenticated
   using (public.owns_gym_profile(profile_id))
   with check (
     public.owns_gym_profile(profile_id)
     and storage_path like ((select auth.uid())::text || '/' || profile_id::text || '/backgrounds/%')
-  );
+  ) $p$;
+  end if;
+end $guard$;
 create policy profile_card_backgrounds_delete_own on public.profile_card_backgrounds
   for delete to authenticated using (public.owns_gym_profile(profile_id));
 

@@ -1,4 +1,5 @@
 import { PROFILE_PHOTO_BUCKET, getSupabase } from '../../lib/supabaseClient';
+import { SIGNED_URL_TTL_SECONDS } from '../../utils/signedUrlCache';
 import { ensureOk, toCloudError } from './cloudErrors';
 
 /**
@@ -7,7 +8,13 @@ import { ensureOk, toCloudError } from './cloudErrors';
  * touch objects under their own `<userId>/` folder.
  */
 
-export const SIGNED_URL_TTL_SECONDS = 60 * 60;
+export { SIGNED_URL_TTL_SECONDS };
+
+/**
+ * Every upload gets a NEW path and files are never overwritten in place, so they can be
+ * cached for a long time: a changed image always has a different path / URL.
+ */
+const IMMUTABLE_CACHE_SECONDS = '31536000';
 
 export function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(',', 2);
@@ -25,7 +32,7 @@ export async function uploadProfilePhoto(userId: string, profileId: string, blob
   const path = `${userId}/${profileId}/${fileName ?? Date.now()}.${extensionFor(blob.type)}`;
   const result = await getSupabase()
     .storage.from(PROFILE_PHOTO_BUCKET)
-    .upload(path, blob, { contentType: blob.type || 'image/webp', upsert: true, cacheControl: '3600' });
+    .upload(path, blob, { contentType: blob.type || 'image/webp', upsert: true, cacheControl: IMMUTABLE_CACHE_SECONDS });
   ensureOk(result, 'Could not upload the profile picture.');
   return path;
 }
@@ -42,18 +49,18 @@ async function listFiles(folder: string): Promise<string[]> {
   return entries.filter((entry) => entry.id !== null).map((entry) => `${folder}/${entry.name}`);
 }
 
-/** Removes every photo AND card background stored for a profile (used when the profile is deleted). */
-export async function removeAllPhotosForProfile(userId: string, profileId: string): Promise<void> {
+/** Avatar files and background files stored in a profile's folder. */
+export async function listProfileFiles(userId: string, profileId: string): Promise<{ photos: string[]; backgrounds: string[] }> {
   const folder = `${userId}/${profileId}`;
   const [photos, backgrounds] = await Promise.all([listFiles(folder), listFiles(`${folder}/backgrounds`)]);
-  await removeProfilePhotos([...photos, ...backgrounds]);
+  return { photos, backgrounds };
 }
 
 /** Uploads a compressed card background to an exact, new path (never overwrites another file). */
 export async function uploadCardBackgroundImage(path: string, blob: Blob): Promise<void> {
   const result = await getSupabase()
     .storage.from(PROFILE_PHOTO_BUCKET)
-    .upload(path, blob, { contentType: blob.type || 'image/webp', upsert: false, cacheControl: '3600' });
+    .upload(path, blob, { contentType: blob.type || 'image/webp', upsert: false, cacheControl: IMMUTABLE_CACHE_SECONDS });
   ensureOk(result, 'Could not upload the background image.');
 }
 

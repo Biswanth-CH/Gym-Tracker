@@ -3,7 +3,7 @@ import { getSupabase } from '../lib/supabaseClient';
 import { errorMessage } from '../services/cloud/cloudErrors';
 import { fetchAllRows } from '../services/cloud/db';
 import { fetchLockedProfileIds } from '../services/cloud/profileLockQueries';
-import { SIGNED_URL_TTL_SECONDS, signProfilePhotos } from '../services/cloud/profilePhotoService';
+import { signProfilePhotos } from '../services/cloud/profilePhotoService';
 import {
   CLOUD_TABLES,
   type AttendanceRow,
@@ -15,11 +15,23 @@ import {
   type SplitTemplateRow,
   type FormVideoRow,
   type CardBackgroundRow,
+  type HiddenFormVideoRow,
+  type SplitBackgroundRow,
+  type BackgroundImageRow,
   type TemplateRow,
   type TrackerRow,
   type WorkoutPlanRow,
 } from '../services/cloud/rows';
 import { addDays, toDateKey } from '../utils/dateUtils';
+import {
+  SIGNED_URL_TTL_SECONDS,
+  clearSignedUrlMaps,
+  pathsNeedingSignature,
+  pruneSignedUrlMap,
+  readSignedUrlMap,
+  writeSignedUrlMap,
+  type SignedUrlMap,
+} from '../utils/signedUrlCache';
 
 /**
  * In-memory mirror of the signed-in account's cloud data.
@@ -50,8 +62,13 @@ export interface CloudSnapshot {
   workoutPlans: WorkoutPlanRow[];
   bodyWeights: BodyWeightRow[];
   splitTemplates: SplitTemplateRow[];
+  /** Phase 8: shared by every account (RLS: any signed-in user can read). */
   formVideos: FormVideoRow[];
+  hiddenFormVideos: HiddenFormVideoRow[];
   cardBackgrounds: CardBackgroundRow[];
+  splitBackgrounds: SplitBackgroundRow[];
+  /** Phase 8b: the account's shared background gallery. */
+  backgroundImages: BackgroundImageRow[];
   /** PIN-locked profile ids (from list_locked_profiles(); never hashes). */
   lockedProfileIds: string[];
   /** storage path → signed URL */
@@ -68,8 +85,11 @@ type RowsByTable = {
   profile_workout_plans: WorkoutPlanRow;
   body_weight_entries: BodyWeightRow;
   account_workout_split_templates: SplitTemplateRow;
-  profile_exercise_form_videos: FormVideoRow;
+  exercise_form_videos: FormVideoRow;
+  profile_hidden_form_videos: HiddenFormVideoRow;
   profile_card_backgrounds: CardBackgroundRow;
+  account_split_day_backgrounds: SplitBackgroundRow;
+  account_background_images: BackgroundImageRow;
 };
 
 const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
@@ -82,8 +102,11 @@ const SLICE: { [T in CloudTable]: keyof CloudSnapshot } = {
   profile_workout_plans: 'workoutPlans',
   body_weight_entries: 'bodyWeights',
   account_workout_split_templates: 'splitTemplates',
-  profile_exercise_form_videos: 'formVideos',
+  exercise_form_videos: 'formVideos',
+  profile_hidden_form_videos: 'hiddenFormVideos',
   profile_card_backgrounds: 'cardBackgrounds',
+  account_split_day_backgrounds: 'splitBackgrounds',
+  account_background_images: 'backgroundImages',
 };
 
 const INITIAL: CloudSnapshot = {
@@ -103,7 +126,10 @@ const INITIAL: CloudSnapshot = {
   bodyWeights: [],
   splitTemplates: [],
   formVideos: [],
+  hiddenFormVideos: [],
   cardBackgrounds: [],
+  splitBackgrounds: [],
+  backgroundImages: [],
   lockedProfileIds: [],
   photoUrls: {},
 };
@@ -117,6 +143,9 @@ let retryAttempt = 0;
 let photoTimer: number | undefined;
 let lastFullRefresh = 0;
 const pendingTables = new Map<CloudTable, number>();
+/** Signed URLs with their expiry (mirrors state.photoUrls; persisted per user for browser-cache reuse). */
+let signedUrls: SignedUrlMap = {};
+const IMAGE_TABLES = new Set<CloudTable>(['gym_profiles', 'profile_card_backgrounds', 'account_split_day_backgrounds', 'account_background_images']);
 
 function setState(patch: Partial<CloudSnapshot>): void {
   state = { ...state, ...patch };
@@ -137,12 +166,15 @@ export const cloudStore = {
     if (state.userId === userId && state.phase !== 'signed-out') return;
     stopInternal();
     const myGeneration = ++generation;
-    setState({ ...INITIAL, phase: 'loading', userId });
+    // Reuse this user's still-valid signed URLs, so cached images show instantly (same URL).
+    signedUrls = readSignedUrlMap(userId, Date.now());
+    setState({ ...INITIAL, phase: 'loading', userId, photoUrls: urlsOf(signedUrls) });
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
-    photoTimer = window.setInterval(() => void refreshPhotoUrls(true), (SIGNED_URL_TTL_SECONDS - 300) * 1000);
+    // Re-signs only URLs that are close to expiring (others keep their cache-friendly URL).
+    photoTimer = window.setInterval(() => void refreshPhotoUrls(), 15 * 60 * 1000);
     subscribeRealtime(myGeneration);
     await cloudStore.refreshAll();
   },
@@ -150,6 +182,8 @@ export const cloudStore = {
   stop(): void {
     stopInternal();
     generation += 1;
+    signedUrls = {};
+    clearSignedUrlMaps();
     setState(INITIAL);
   },
 
@@ -172,7 +206,7 @@ export const cloudStore = {
       });
       if (lockedProfileIds) patch.lockedProfileIds = lockedProfileIds;
       setState({ ...patch, phase: 'ready', error: null, syncing: false, lastSyncedAt: Date.now() });
-      await refreshPhotoUrls(false);
+      await refreshPhotoUrls();
     } catch (error) {
       if (myGeneration !== generation) return;
       setState({
@@ -196,8 +230,8 @@ export const cloudStore = {
             if (myGeneration !== generation) return;
             setState({ [SLICE[table]]: rows, lastSyncedAt: Date.now() } as Partial<CloudSnapshot>);
             // PIN set / removed bumps the profile row, so re-read locks with profiles.
-            if (table === 'gym_profiles') await Promise.all([refreshPhotoUrls(false), cloudStore.refreshLockedProfiles()]);
-            if (table === 'profile_card_backgrounds') await refreshPhotoUrls(false);
+            if (table === 'gym_profiles') await Promise.all([refreshPhotoUrls(), cloudStore.refreshLockedProfiles()]);
+            else if (IMAGE_TABLES.has(table)) await refreshPhotoUrls();
           })
           .catch((error) => setState({ error: errorMessage(error, 'Sync failed.') }));
       }, 150),
@@ -210,7 +244,7 @@ export const cloudStore = {
     const byId = new Map(slice.map((row) => [row.id, row]));
     rows.forEach((row) => byId.set(row.id, row));
     setState({ [SLICE[table]]: [...byId.values()] } as Partial<CloudSnapshot>);
-    if (table === 'gym_profiles' || table === 'profile_card_backgrounds') void refreshPhotoUrls(false);
+    if (IMAGE_TABLES.has(table)) void refreshPhotoUrls();
   },
 
   /** Removes rows locally after a successful delete. */
@@ -230,8 +264,10 @@ export const cloudStore = {
       records: state.records.filter((row) => row.profile_id !== profileId),
       workoutPlans: state.workoutPlans.filter((row) => row.profile_id !== profileId),
       bodyWeights: state.bodyWeights.filter((row) => row.profile_id !== profileId),
-      formVideos: state.formVideos.filter((row) => row.profile_id !== profileId),
+      hiddenFormVideos: state.hiddenFormVideos.filter((row) => row.profile_id !== profileId),
       cardBackgrounds: state.cardBackgrounds.filter((row) => row.profile_id !== profileId),
+      // The database keeps the deleted profile's gallery images (uploader set to NULL).
+      backgroundImages: state.backgroundImages.map((row) => (row.uploader_profile_id === profileId ? { ...row, uploader_profile_id: null } : row)),
     });
   },
 
@@ -247,6 +283,23 @@ export const cloudStore = {
     }
   },
 
+  /**
+   * A deleted image: drop every local row that used it (the database already removed them in
+   * the same transaction) and forget its signed URL, so no card keeps showing it.
+   */
+  applyBackgroundImageDeleted(storagePath: string): void {
+    delete signedUrls[storagePath];
+    if (state.userId) writeSignedUrlMap(state.userId, signedUrls);
+    const photoUrls = { ...state.photoUrls };
+    delete photoUrls[storagePath];
+    setState({
+      backgroundImages: state.backgroundImages.filter((row) => row.storage_path !== storagePath),
+      cardBackgrounds: state.cardBackgrounds.filter((row) => row.storage_path !== storagePath),
+      splitBackgrounds: state.splitBackgrounds.filter((row) => row.storage_path !== storagePath),
+      photoUrls,
+    });
+  },
+
   clearError(): void {
     setState({ error: null });
   },
@@ -260,9 +313,18 @@ function loadTable(table: CloudTable): Promise<unknown[]> {
   return fetchAllRows(table);
 }
 
-const OPTIONAL_TABLES = new Set<CloudTable>(['profile_workout_plans', 'body_weight_entries', 'account_workout_split_templates', 'profile_exercise_form_videos', 'profile_card_backgrounds']);
+const OPTIONAL_TABLES = new Set<CloudTable>([
+  'profile_workout_plans',
+  'body_weight_entries',
+  'account_workout_split_templates',
+  'exercise_form_videos',
+  'profile_hidden_form_videos',
+  'profile_card_backgrounds',
+  'account_split_day_backgrounds',
+  'account_background_images',
+]);
 
-/** Newer tables may not exist until the Phase 4 / Phase 6 SQL migrations are applied. */
+/** Newer tables may not exist until the Phase 4 / 6 / 7 / 8 SQL migrations are applied. */
 function isMissingOptionalTable(table: CloudTable, error: unknown): boolean {
   if (!OPTIONAL_TABLES.has(table) || typeof error !== 'object' || error === null) return false;
   const details = error as { code?: unknown; message?: unknown; status?: unknown };
@@ -280,21 +342,44 @@ async function loadTableOrEmpty(table: CloudTable): Promise<unknown[]> {
   }
 }
 
-async function refreshPhotoUrls(forceAll: boolean): Promise<void> {
-  // Avatars and card backgrounds share the private bucket, so both are signed here.
-  const paths = [
+const urlsOf = (map: SignedUrlMap): Record<string, string> => Object.fromEntries(Object.entries(map).map(([path, entry]) => [path, entry.url]));
+
+/** Every private image path the app currently shows (avatars, profile-card and split backgrounds). */
+function imagePaths(): string[] {
+  return [
     ...state.profiles.map((row) => row.photo_path),
     ...state.cardBackgrounds.map((row) => row.storage_path),
+    ...state.splitBackgrounds.map((row) => row.storage_path),
+    ...state.backgroundImages.map((row) => row.storage_path),
   ].filter((path): path is string => Boolean(path));
-  const missing = forceAll ? paths : paths.filter((path) => !state.photoUrls[path]);
-  if (missing.length === 0) return;
-  try {
-    const signed = await signProfilePhotos(missing);
-    const keep = Object.fromEntries(Object.entries(state.photoUrls).filter(([path]) => paths.includes(path)));
-    setState({ photoUrls: { ...keep, ...signed } });
-  } catch {
-    // Photos fall back to initials; the next refresh will retry.
+}
+
+/**
+ * Signs only paths without a usable URL (new, or expiring soon). Valid URLs are kept
+ * unchanged so the browser cache keeps serving them; unused paths are forgotten.
+ */
+async function refreshPhotoUrls(): Promise<void> {
+  const userId = state.userId;
+  if (!userId) return;
+  const paths = imagePaths();
+  const now = Date.now();
+  const missing = pathsNeedingSignature(paths, signedUrls, now);
+  if (missing.length > 0) {
+    try {
+      const signed = await signProfilePhotos(missing);
+      if (state.userId !== userId) return;
+      const expiresAt = now + SIGNED_URL_TTL_SECONDS * 1000;
+      for (const [path, url] of Object.entries(signed)) signedUrls[path] = { url, expiresAt };
+    } catch {
+      // Photos fall back to initials; the next refresh will retry.
+    }
   }
+  signedUrls = pruneSignedUrlMap(signedUrls, imagePaths());
+  writeSignedUrlMap(userId, signedUrls);
+  const next = urlsOf(signedUrls);
+  const current = state.photoUrls;
+  const changed = Object.keys(next).length !== Object.keys(current).length || Object.entries(next).some(([path, url]) => current[path] !== url);
+  if (changed) setState({ photoUrls: next });
 }
 
 function subscribeRealtime(myGeneration: number): void {

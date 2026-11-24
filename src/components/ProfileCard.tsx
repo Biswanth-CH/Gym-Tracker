@@ -1,5 +1,4 @@
 import { Lock, Pencil } from 'lucide-react';
-import { getGenderLabel } from '../constants/profileOptions';
 import type { CardBackgroundSettings, Profile } from '../types/gym';
 import { formatStreak } from '../utils/streakDisplay';
 import { profileTileThemeStyle } from '../services/documentTheme';
@@ -21,8 +20,8 @@ interface ProfileCardProps {
 }
 
 /**
- * Grid tile: streak (top-left), Edit icon (top-right), picture, name, gender and a lock
- * icon when PIN-protected. `data-theme` gives each tile a subtle accent in its own
+ * Grid tile: streak (top-left), Edit icon (top-right), picture (unless hidden for the card
+ * in Edit Profile), and the name at the bottom-left with a lock icon when PIN-protected. `data-theme` gives each tile a subtle accent in its own
  * profile colour without theming the whole Profiles page. An optional background image
  * sits behind everything (image → dim overlay → content).
  */
@@ -30,7 +29,7 @@ export function ProfileCard({ profile, streakDays, isLocked, onOpen, onEdit, bac
   const hasBackground = Boolean(background?.imageUrl);
   return (
     <article
-      className={`profile-tile${hasBackground ? ' has-card-background' : ''}`}
+      className={`profile-tile${hasBackground ? ' has-card-background' : ''}${profile.showPhotoOnCard ? '' : ' profile-tile--no-photo'}`}
       data-theme={profile.customThemeColor ? 'custom' : profile.themeKey}
       style={profileTileThemeStyle(profile.customThemeColor)}
       data-testid={isPreview ? 'profile-card-preview' : 'profile-card'}
@@ -55,7 +54,7 @@ export function ProfileCard({ profile, streakDays, isLocked, onOpen, onEdit, bac
           <Pencil size={16} aria-hidden="true" />
         </button>
       )}
-      <ProfileAvatar seed={profile.id} name={profile.name} photoUrl={profile.photoUrl} size={72} className="profile-tile__avatar" />
+      {profile.showPhotoOnCard && <ProfileAvatar seed={profile.id} name={profile.name} photoUrl={profile.photoUrl} size={72} className="profile-tile__avatar" />}
       <h3 className="profile-tile__name">
         {isPreview ? (
           <span className="profile-tile__open">
@@ -74,7 +73,6 @@ export function ProfileCard({ profile, streakDays, isLocked, onOpen, onEdit, bac
           </button>
         )}
       </h3>
-      <span className="profile-tile__gender">{getGenderLabel(profile.gender)}</span>
     </article>
   );
 }

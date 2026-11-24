@@ -15,16 +15,16 @@ const PROFILE = 'aaaaaaaa-0000-4000-8000-000000000001';
 
 describe('card background settings', () => {
   it('defaults to a sensible dim and no blur, centred', () => {
-    expect(DEFAULT_CARD_BACKGROUND_SETTINGS).toEqual({ dimPercent: 45, blurPx: 0, focalX: 50, focalY: 50 });
+    expect(DEFAULT_CARD_BACKGROUND_SETTINGS).toEqual({ dimPercent: 45, blurPx: 0, zoomPercent: 100, focalX: 50, focalY: 50 });
   });
 
   it('clamps and rounds every value to the database limits', () => {
-    expect(normalizeBackgroundSettings({ dimPercent: '120', blurPx: -3, focalX: 33.6, focalY: 'x' })).toEqual({ dimPercent: 90, blurPx: 0, focalX: 34, focalY: 50 });
+    expect(normalizeBackgroundSettings({ dimPercent: '120', blurPx: -3, focalX: 33.6, focalY: 'x' })).toEqual({ dimPercent: 90, blurPx: 0, zoomPercent: 100, focalX: 34, focalY: 50 });
     expect(normalizeBackgroundSettings({ blurPx: 99 }).blurPx).toBe(20);
   });
 
   it('puts blur on the image layer only and dim on the overlay', () => {
-    const styles = backgroundLayerStyles('https://x.supabase.co/storage/v1/object/sign/a.webp?token=t', { dimPercent: 60, blurPx: 8, focalX: 20, focalY: 80 });
+    const styles = backgroundLayerStyles('https://x.supabase.co/storage/v1/object/sign/a.webp?token=t', { dimPercent: 60, blurPx: 8, zoomPercent: 100, focalX: 20, focalY: 80 });
     expect(styles.image.filter).toBe('blur(8px)');
     expect(styles.image.backgroundPosition).toBe('20% 80%');
     expect(styles.image.transform).toMatch(/scale/);

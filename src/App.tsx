@@ -21,6 +21,7 @@ import { MigrationPage } from './pages/MigrationPage';
 import { MuscleGroupPage } from './pages/MuscleGroupPage';
 import { MuscleRegionPage } from './pages/MuscleRegionPage';
 import { ProfileDashboard } from './pages/ProfileDashboard';
+import { TodayLogPage } from './pages/TodayLogPage';
 import { ProfileOverviewPage } from './pages/ProfileOverviewPage';
 import { ProfilePinGatePage } from './pages/ProfilePinGatePage';
 import { ExerciseFormVideosPage } from './pages/ExerciseFormVideosPage';
@@ -225,7 +226,8 @@ function Routes({ onImport }: { onImport?: () => void }) {
       <AppHeader
         activeProfile={activeProfile}
         isOverviewOpen={route.name === 'overview'}
-        accountControls={<AccountBar onImport={onImport} />}
+        // Inside a profile, Logout lives in Profile Overview (and on the Profiles page header).
+        accountControls={<AccountBar onImport={onImport} showLogout={!activeProfile} />}
         onOpenProfiles={goHome}
         onOpenProfileOverview={(profile) => {
           if (route.name !== 'overview') navigate({ name: 'overview', profileId: profile.id });
@@ -266,7 +268,18 @@ function ProfileScreens({
   if (isProfileLockedNow(profileId)) return <ProfilePinGatePage key={profileId} profile={profile} onCancel={goHome} />;
 
   if (route.name === 'dashboard') {
-    return <ProfileDashboard profile={profile} onBack={goHome} onSelectDay={(day) => navigate({ name: 'day', profileId, dayId: day.id })} />;
+    return (
+      <ProfileDashboard
+        profile={profile}
+        onBack={goHome}
+        onSelectDay={(day) => navigate({ name: 'day', profileId, dayId: day.id })}
+        onOpenToday={() => navigate({ name: 'today', profileId })}
+      />
+    );
+  }
+
+  if (route.name === 'today') {
+    return <TodayLogPage key={profileId} profile={profile} onBack={openDashboard} />;
   }
 
   if (route.name === 'overview') {

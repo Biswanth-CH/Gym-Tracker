@@ -24,7 +24,8 @@ interface BodyWeightSectionProps {
   onToast: (message: string, tone?: 'success' | 'error' | 'info') => void;
   /** Phase 7: previous records live on their own pages instead of an inline list. */
   onOpenWeightData: () => void;
-  onOpenMonthlyStatistics: () => void;
+  /** Optional: on the Consistency page the button lives in the Consistency Track card instead. */
+  onOpenMonthlyStatistics?: () => void;
 }
 
 type RangeMode = 'week' | 'month' | 'custom';
@@ -135,9 +136,11 @@ export function BodyWeightSection({ profile, todayKey, onToast, onOpenWeightData
         <button type="button" className="button button--ghost" onClick={onOpenWeightData} data-testid="open-weight-data">
           <CalendarDays size={18} aria-hidden="true" /> Weight Data
         </button>
-        <button type="button" className="button button--ghost" onClick={onOpenMonthlyStatistics} data-testid="open-monthly-statistics">
-          <BarChart3 size={18} aria-hidden="true" /> Monthly Statistics
-        </button>
+        {onOpenMonthlyStatistics && (
+          <button type="button" className="button button--ghost" onClick={onOpenMonthlyStatistics} data-testid="open-monthly-statistics">
+            <BarChart3 size={18} aria-hidden="true" /> Monthly Statistics
+          </button>
+        )}
       </div>
 
       <WeightLogModal

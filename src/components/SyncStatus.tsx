@@ -6,7 +6,7 @@ import { useCloudStatus } from '../hooks/useCloud';
 import { cloudStore } from '../store/cloudStore';
 
 /** Compact account + sync indicator shown on the profiles screen. */
-export function AccountBar({ onImport }: { onImport?: () => void }) {
+export function AccountBar({ onImport, showLogout = true }: { onImport?: () => void; showLogout?: boolean }) {
   const { user, signOut } = useAuth();
   const { connection, syncing } = useCloudStatus();
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -25,22 +25,26 @@ export function AccountBar({ onImport }: { onImport?: () => void }) {
           <Upload size={18} aria-hidden="true" />
         </button>
       )}
-      <button type="button" className="icon-button" onClick={() => setLogoutOpen(true)} aria-label="Logout Account" title="Logout Account" data-testid="sign-out">
-        <LogOut size={18} aria-hidden="true" />
-      </button>
-      <ConfirmDialog
-        isOpen={logoutOpen}
-        title="Log out of GymTrack?"
-        description="You’ll be signed out of this account on this device. Your profiles and workouts stay saved in the cloud."
-        confirmLabel="Logout Account"
-        icon={<LogOut size={24} aria-hidden="true" />}
-        destructive
-        onCancel={() => setLogoutOpen(false)}
-        onConfirm={() => {
-          setLogoutOpen(false);
-          signOut().catch(() => undefined);
-        }}
-      />
+      {showLogout && (
+        <>
+          <button type="button" className="icon-button" onClick={() => setLogoutOpen(true)} aria-label="Logout Account" title="Logout Account" data-testid="sign-out">
+            <LogOut size={18} aria-hidden="true" />
+          </button>
+          <ConfirmDialog
+            isOpen={logoutOpen}
+            title="Log out of GymTrack?"
+            description="You’ll be signed out of this account on this device. Your profiles and workouts stay saved in the cloud."
+            confirmLabel="Logout Account"
+            icon={<LogOut size={24} aria-hidden="true" />}
+            destructive
+            onCancel={() => setLogoutOpen(false)}
+            onConfirm={() => {
+              setLogoutOpen(false);
+              signOut().catch(() => undefined);
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

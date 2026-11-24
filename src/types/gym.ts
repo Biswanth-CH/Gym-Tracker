@@ -19,6 +19,8 @@ export interface Profile {
   themeKey: ProfileThemeKey;
   /** Phase 7: exact custom colour (#RRGGBB) that overrides the preset; null = use `themeKey`. */
   customThemeColor: string | null;
+  /** Phase 8: show the picture on the Profiles page card (the photo itself is always kept). */
+  showPhotoOnCard: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -39,14 +41,17 @@ export interface ProfileInput {
   heightCm: number | null;
   themeKey: ProfileThemeKey;
   customThemeColor: string | null;
+  /** Phase 8: false hides the picture on the profile card only. */
+  showPhotoOnCard: boolean;
 }
 
-/** Phase 7 form-reference videos (`profile_exercise_form_videos`). */
+/** Form-reference videos. Phase 8: shared by every account (`exercise_form_videos`). */
 export type FormVideoPlatform = 'YOUTUBE' | 'INSTAGRAM' | 'OTHER';
 
 export interface ExerciseFormVideo {
   id: string;
-  profileId: string;
+  /** Account that added the video (only it may edit / delete); null if that account was deleted. */
+  createdBy: string | null;
   /** Stable library id of the exercise variation. */
   exerciseId: string;
   videoName: string;
@@ -441,6 +446,8 @@ export type AttendanceMap = ReadonlyMap<DateKey, AttendanceStatus>;
 export type Route =
   | { name: 'profiles' }
   | { name: 'dashboard'; profileId: string }
+  /** Phase 8: today's attendance + weight, opened from the weekly plan. */
+  | { name: 'today'; profileId: string }
   | { name: 'day'; profileId: string; dayId: DayId }
   | { name: 'consistency'; profileId: string }
   | { name: 'overview'; profileId: string }
@@ -483,9 +490,32 @@ export interface CardBackgroundSettings {
   dimPercent: number;
   /** Blur of the image layer only, 0–20 px. */
   blurPx: number;
+  /** Zoom of the image layer, 100–300 % (100 % = the image just covers the card). */
+  zoomPercent: number;
   /** Focal point (object-position) in %, 0–100. */
   focalX: number;
   focalY: number;
+}
+
+/** Phase 8b: an image in the account's shared background gallery (`account_background_images`). */
+export interface BackgroundImage {
+  id: string;
+  /** Profile that uploaded it (only it may delete the image); null if that profile was deleted. */
+  uploaderProfileId: string | null;
+  storagePath: string;
+  imageUrl: string | null;
+  createdAt: string;
+}
+
+/** Phase 8: a weekday card background of a SHARED split (`account_split_day_backgrounds`). */
+export interface SplitDayBackground extends CardBackgroundSettings {
+  id: string;
+  splitId: string;
+  dayId: DayId;
+  /** Private storage path; several days / splits may reference the same file. */
+  storagePath: string;
+  imageUrl: string | null;
+  updatedAt: string;
 }
 
 export interface CardBackground extends CardBackgroundSettings {

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ChevronDown, Dumbbell } from 'lucide-react';
 import type { Profile } from '../types/gym';
+import { ProfileAvatar } from './ProfileAvatar';
 
 interface AppHeaderProps {
   /** The profile whose screens are open; null on the Profiles page. */
@@ -14,8 +15,8 @@ interface AppHeaderProps {
 
 /**
  * Global signed-in header. Left: GymTrack logo, name and "Built by Bisss!".
- * Right: account controls and — on profile screens — the active profile's name with ▼
- * (text only), which opens Profile Overview.
+ * Right: account controls and — on profile screens — the active profile's name, picture
+ * (or initials) to its right and ▼, which opens Profile Overview.
  */
 export function AppHeader({ activeProfile, isOverviewOpen, accountControls, onOpenProfileOverview, onOpenProfiles }: AppHeaderProps) {
   return (
@@ -44,6 +45,7 @@ export function AppHeader({ activeProfile, isOverviewOpen, accountControls, onOp
               data-testid="header-profile-button"
             >
               <span className="app-header__profile-name">{activeProfile.name}</span>
+              <ProfileAvatar seed={activeProfile.id} name={activeProfile.name} photoUrl={activeProfile.photoUrl} size={28} className="app-header__profile-avatar" />
               <ChevronDown size={16} aria-hidden="true" />
             </button>
           )}

@@ -11,6 +11,7 @@ import {
 } from '../../utils/workoutPlan';
 import { CloudError, ensureOk, isMissingColumnError, toCloudError } from './cloudErrors';
 import { upsertRow } from './db';
+import { splitBackgroundService } from './splitBackgroundService';
 import { toSplitTemplate, toWorkoutPlan, type SplitTemplateRow, type WorkoutPlanRow } from './rows';
 
 /**
@@ -152,14 +153,26 @@ export const workoutSplitTemplateService = {
     return updated;
   },
 
-  /** Independent copy under a unique "(copy)" name. Not activated. */
-  duplicate(
+  /**
+   * Independent copy under a unique "(copy)" name. Not activated. A saved split's weekly
+   * backgrounds are copied too (same image files, independent rows).
+   */
+  async duplicate(
     creatorProfileId: string,
     sourceName: string,
     sourceDays: readonly CustomDayPlan[],
     accountSplits: readonly WorkoutSplitTemplate[],
+    sourceSplitId?: string,
   ): Promise<WorkoutSplitTemplate> {
-    return workoutSplitTemplateService.create(creatorProfileId, duplicateSplitName(sourceName, accountSplits), sourceDays, accountSplits);
+    const copy = await workoutSplitTemplateService.create(creatorProfileId, duplicateSplitName(sourceName, accountSplits), sourceDays, accountSplits);
+    if (sourceSplitId) {
+      try {
+        await splitBackgroundService.copyAll(sourceSplitId, copy.id);
+      } catch (error) {
+        throw new CloudError(`Duplicated as “${copy.splitName}”, but its backgrounds could not be copied: ${toCloudError(error).message}`, 'unknown');
+      }
+    }
+    return copy;
   },
 
   /** Number of profiles whose ACTIVE split is this one (for the delete warning). */
@@ -177,6 +190,8 @@ export const workoutSplitTemplateService = {
     }
     ensureOk(await getSupabase().from('account_workout_split_templates').delete().eq('id', template.id), 'Could not delete the workout split.');
     cloudStore.applyDeletes('account_workout_split_templates', (row) => row.id === template.id);
+    // Its backgrounds were deleted with it (ON DELETE CASCADE); the images stay in the gallery.
+    splitBackgroundService.cleanUpDeletedSplit(template.id);
     // The database clears active_account_split_id where it was remembered (ON DELETE SET NULL).
     cloudStore.refreshTable('profile_workout_plans');
   },

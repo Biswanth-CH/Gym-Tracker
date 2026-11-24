@@ -17,7 +17,8 @@ interface WorkoutSplitSelectorProps {
   onEditWorkoutSplit: (template: WorkoutSplitTemplate) => void;
   /** Saves the legacy (pre-Phase 5) custom schedule as a proper saved split. */
   onSaveLegacySplit: (splitName: string, days: CustomDayPlan[]) => void;
-  onDuplicateWorkoutSplit: (sourceName: string, sourceDays: readonly CustomDayPlan[]) => Promise<void>;
+  /** `sourceSplitId` is set for saved splits, so their weekly backgrounds are copied too. */
+  onDuplicateWorkoutSplit: (sourceName: string, sourceDays: readonly CustomDayPlan[], sourceSplitId?: string) => Promise<void>;
   onDeleteWorkoutSplit: (template: WorkoutSplitTemplate) => Promise<void>;
 }
 
@@ -234,7 +235,7 @@ export function WorkoutSplitSelector({
                         aria-label={`Duplicate ${template.splitName}`}
                         title="Duplicate"
                         disabled={busyKey !== null}
-                        onClick={() => void run(`duplicate:${template.id}`, () => onDuplicateWorkoutSplit(template.splitName, template.days), false)}
+                        onClick={() => void run(`duplicate:${template.id}`, () => onDuplicateWorkoutSplit(template.splitName, template.days, template.id), false)}
                         data-testid="split-duplicate"
                       >
                         <Copy size={16} aria-hidden="true" />

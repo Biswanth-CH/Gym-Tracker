@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -102,7 +103,9 @@ export function Modal({ isOpen, title, description, onClose, children, icon, pla
 
   if (!isOpen) return null;
 
-  return (
+  // Rendered into <body>, so no sticky / stacked parent (e.g. the app header) can place the
+  // dialog below the bottom navigation.
+  return createPortal(
     <div
       ref={backdropRef}
       className={`modal-backdrop modal-backdrop--${placement}`}
@@ -131,6 +134,7 @@ export function Modal({ isOpen, title, description, onClose, children, icon, pla
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
